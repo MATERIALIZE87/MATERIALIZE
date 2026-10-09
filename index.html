@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Map Painter</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <aside id="side">
+    <h1>Map Painter</h1>
+
+    <section>
+      <h2>Map</h2>
+      <label class="btn">Load my map image<input type="file" id="mapFile" accept="image/*" hidden></label>
+      <button id="demoBtn">Load demo map</button>
+      <label>Line threshold <span id="thrVal">110</span>
+        <input type="range" id="thr" min="20" max="230" value="110"></label>
+      <button id="redetect">Re-detect provinces</button>
+      <label>Style
+        <select id="mode">
+          <option value="multiply">Tint (colors multiply with your map)</option>
+          <option value="flat">Flat colors + lines on top</option>
+        </select></label>
+      <label>Color opacity <input type="range" id="opacity" min="10" max="100" value="100"></label>
+      <p class="hint">Provinces = areas enclosed by dark lines in your image. Adjust the threshold until clicking selects what you expect.</p>
+    </section>
+
+    <section>
+      <h2>Tools</h2>
+      <div id="tools">
+        <button data-tool="fill" class="on" title="F">Assign province</button>
+        <button data-tool="unown" title="U">Unassign</button>
+        <button data-tool="pick" title="P">Pick country</button>
+        <button data-tool="brush" title="B">Brush</button>
+        <button data-tool="eraser" title="E">Eraser</button>
+        <button data-tool="pan" title="Space = pan">Pan</button>
+      </div>
+      <label>Brush size <input type="range" id="brushSize" min="2" max="150" value="24"></label>
+      <label>Brush color <input type="color" id="brushColor" value="#c0392b"></label>
+      <label class="chk"><input type="checkbox" id="lockBrush"> Keep brush inside the province I start in</label>
+      <p class="hint">Click or drag over provinces to assign them to the selected country. Wheel = zoom, right/middle drag = pan.</p>
+    </section>
+
+    <section>
+      <h2>Countries</h2>
+      <div id="countries"></div>
+      <button id="addCountry">+ Add country</button>
+      <p class="hint">Change a color and every province it owns updates. Keys 0–9 select a country.</p>
+    </section>
+
+    <section>
+      <h2>Quick war</h2>
+      <label>Attacker <select id="warA"></select></label>
+      <label>Defender <select id="warB"></select></label>
+      <div class="row">
+        <button id="warApply">Red vs Blue</button>
+        <button id="warSwap">Swap</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>Project</h2>
+      <div class="row">
+        <button id="undoBtn">Undo</button>
+        <button id="redoBtn">Redo</button>
+      </div>
+      <button id="exportPng">Export frame (PNG)</button>
+      <button id="savePrj">Save project (.json)</button>
+      <label class="btn">Load project<input type="file" id="loadPrj" accept=".json" hidden></label>
+    </section>
+  </aside>
+
+  <main>
+    <div id="view"><div id="stage"><canvas id="main"></canvas></div></div>
+    <div id="timeline">
+      <div id="kfList"></div>
+      <div class="tlrow">
+        <button id="kfAdd">+ Keyframe</button>
+        <button id="kfUpdate">Update selected</button>
+        <button id="kfLeft">◀</button>
+        <button id="kfRight">▶</button>
+        <button id="kfDel">Delete</button>
+        <label>Hold (s) <input type="number" id="hold" value="2" min="0" step="0.5"></label>
+        <label>Transition in (s) <input type="number" id="trans" value="1.5" min="0" step="0.5"></label>
+      </div>
+      <div class="tlrow">
+        <label>Caption <input type="text" id="caption" placeholder="e.g. 1914"></label>
+        <label>Size <input type="number" id="capSize" value="56" min="10" max="300"></label>
+        <label>Position <select id="capPos"><option value="bottom">Bottom</option><option value="top">Top</option></select></label>
+        <button id="playBtn">▶ Preview</button>
+        <button id="recBtn">● Record video</button>
+        <button id="stopBtn">■ Stop</button>
+        <span id="status"></span>
+      </div>
+    </div>
+  </main>
+</div>
+<script src="app.js"></script>
+</body>
+</html>
