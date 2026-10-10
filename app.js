@@ -24,18 +24,18 @@ const MAXW = 2400; // Ancho máximo de la imagen para que no colapse la memoria
 // Formato fácil de editar: "Nombre del País": { hex: "Código RGB", colorName: "Nombre descriptivo" }
 const countryDatabase = {
   "Europa": {
-    "Alemania": { hex: "#2c3e50", colorName: "Gris Oscuro" },
-    "Francia": { hex: "#2980b9", colorName: "Azul Rey" },
-    "Reino Unido": { hex: "#c0392b", colorName: "Rojo Oscuro" },
-    "Italia": { hex: "#27ae60", colorName: "Verde Esmeralda" },
-    "España": { hex: "#f1c40f", colorName: "Amarillo" },
-    "Rusia": { hex: "#8e44ad", colorName: "Morado" },
-    "Ucrania": { hex: "#f39c12", colorName: "Naranja" },
-    "Polonia": { hex: "#e74c3c", colorName: "Rojo Claro" },
-    "Serbia": { hex: "#d35400", colorName: "Naranja Oscuro" },
-    "Croacia": { hex: "#3498db", colorName: "Azul Claro" },
-    "Bosnia": { hex: "#f1c40f", colorName: "Amarillo" },
-    "Grecia": { hex: "#0984e3", colorName: "Celeste Fuerte" }
+    "Alemania": { hex: "#737373", colorName: "Gris Oscuro" },
+    "Francia": { hex: "#2167cc", colorName: "Azul Rey" },
+    "Reino Unido": { hex: "#bf2a51", colorName: "Rojo Oscuro" },
+    "Italia": { hex: "#197a42", colorName: "Verde Esmeralda" },
+    "España": { hex: "#de9c29", colorName: "Amarillo" },
+    "Rusia": { hex: "#3c8c35", colorName: "Morado" },
+    "Ucrania": { hex: "#1174f2", colorName: "Naranja" },
+    "Polonia": { hex: "#cc7bad", colorName: "Rojo Claro" },
+    "Serbia": { hex: "#646aab", colorName: "Naranja Oscuro" },
+    "Croacia": { hex: "#55b6f7", colorName: "Azul Claro" },
+    "Bosnia": { hex: "#034987", colorName: "Amarillo" },
+    "Grecia": { hex: "#09ade3", colorName: "Celeste Fuerte" }
   },
   "América": {
     "Argentina": { hex: "#74b9ff", colorName: "Celeste" },
