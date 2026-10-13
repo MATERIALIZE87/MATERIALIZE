@@ -13,17 +13,17 @@
 
     <section>
       <h2>Mapa</h2>
-      <label class="btn">Cargar mi imagen de mapa<input type="file" id="mapFile" accept="image/*" hidden></label>
-      <button id="demoBtn">Cargar mapa de prueba</button>
-      <label>Umbral de líneas <span id="thrVal">110</span>
-        <input type="range" id="thr" min="20" max="230" value="110"></label>
+      <label class="btn">Cargar otra imagen<input type="file" id="mapFile" accept="image/*" hidden></label>
+      <button id="demoBtn">Recargar mapa Balcanes</button>
+      <label>Umbral de líneas <span id="thrVal">135</span>
+        <input type="range" id="thr" min="20" max="230" value="135"></label>
       <button id="redetect">Re-detectar provincias</button>
       <label>Estilo
         <select id="mode">
-          <option value="multiply">Tinte (conserva relieve y sombras)</option>
+          <option value="relief">Relieve Táctico (ve blancos y sombras)</option>
           <option value="flat">Colores planos + líneas encima</option>
         </select></label>
-      <label>Opacidad del color <input type="range" id="opacity" min="10" max="100" value="100"></label>
+      <label>Opacidad del color <input type="range" id="opacity" min="10" max="100" value="85"></label>
     </section>
 
     <section>
@@ -31,17 +31,27 @@
       <div id="tools">
         <button data-tool="fill" class="on" title="F">Asignar prov.</button>
         <button data-tool="unown" title="U">Desasignar</button>
+        <button data-tool="group" title="G">Agrupar (Clic/Lazo)</button>
+        <button data-tool="ungroup" title="H">Desagrupar</button>
+        <button data-tool="split" title="S">Dibujar Frontera</button>
         <button data-tool="pick" title="P">Clonar color</button>
-        <button data-tool="brush" title="B">Pincel</button>
-        <button data-tool="eraser" title="E">Borrador</button>
-        <button data-tool="pan" title="Space = Mover">Mover (Pan)</button>
+        <button data-tool="text" title="T">Añadir Texto</button>
+        <button data-tool="image" title="I">Añadir Imagen</button>
+        <button data-tool="moveItem" title="V">Mover Elem.</button>
+        <button data-tool="pan" title="Espacio o Rueda = Mover">Mover Mapa</button>
       </div>
-      <label>Tamaño pincel <input type="range" id="brushSize" min="2" max="150" value="24"></label>
-      <label>Color pincel <input type="color" id="brushColor" value="#c0392b"></label>
-      <label class="chk"><input type="checkbox" id="lockBrush"> Mantener pincel dentro de la provincia</label>
+      
+      <!-- Controles para Textos e Imágenes en el mapa -->
+      <div id="itemControls" style="margin-top:8px; padding-top:6px; border-top:1px dashed #2c3038;">
+        <label>Texto / Etiqueta: <input type="text" id="mapTextInput" placeholder="Ej. Belgrado"></label>
+        <div class="row">
+          <label style="flex:1">Tam. / Escala <input type="number" id="itemSize" value="22" min="6" max="400"></label>
+          <label>Color <input type="color" id="itemColor" value="#ffffff"></label>
+        </div>
+        <input type="file" id="itemImgFile" accept="image/*" hidden>
+      </div>
     </section>
 
-    <!-- NUEVA SECCIÓN: Base de datos de Países -->
     <section>
       <h2>Base de Datos de Países</h2>
       <label>Continente:
@@ -82,7 +92,11 @@
   </aside>
 
   <main>
-    <div id="view"><div id="stage"><canvas id="main"></canvas></div></div>
+    <div id="view">
+      <div id="stage"><canvas id="main"></canvas></div>
+      <!-- Menú Contextual Clic Derecho -->
+      <div id="ctxMenu" class="ctx-menu" hidden></div>
+    </div>
     <div id="timeline">
       <div id="kfList"></div>
       <div class="tlrow">
@@ -95,7 +109,7 @@
         <label>Transición (s) <input type="number" id="trans" value="1.5" min="0" step="0.5"></label>
       </div>
       <div class="tlrow">
-        <label>Texto <input type="text" id="caption" placeholder="ej. Noviembre 2027"></label>
+        <label>Fecha/Título <input type="text" id="caption" placeholder="ej. Noviembre 2027"></label>
         <label>Tamaño <input type="number" id="capSize" value="56" min="10" max="300"></label>
         <label>Posición <select id="capPos"><option value="bottom">Abajo</option><option value="top">Arriba</option></select></label>
         <button id="playBtn">▶ Previsualizar</button>
