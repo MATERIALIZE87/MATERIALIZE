@@ -1,7 +1,6 @@
 (() => {
 'use strict';
 
-// Funciones utilitarias básicas
 const $ = id => document.getElementById(id);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const hex2rgb = h => { 
@@ -10,293 +9,312 @@ const hex2rgb = h => {
 };
 const mkCanvas = () => document.createElement('canvas');
 
-// Referencias al DOM (HTML)
 const view = $('view');
 const stage = $('stage');
 const cv = $('main');
 const ctx = cv.getContext('2d');
+const ctxMenu = $('ctxMenu');
 
-const MAXW = 2400; // Ancho máximo de la imagen para que no colapse la memoria
+const MAXW = 2400;
+const DEFAULT_MAP_PATH = 'balkan image_2.jpg';
 
 // ==========================================
-// 1. BASE DE DATOS DE PAÍSES Y COLORES
+// 1. BASE DE DATOS DE PAÍSES (Ordenada)
 // ==========================================
-// Formato fácil de editar: "Nombre del País": { hex: "Código RGB", colorName: "Nombre descriptivo" }
 const countryDatabase = {
   "Europa": {
-    "Albania": { hex: "#cd3c3c", colorName: "Grubby Red" },
-    "Austria": { hex: "#ffffff", colorName: "White" },
-    "Belarus": { hex: "#64d46c", colorName: "Snow Pea" },
-    "Belgium": { hex: "#daa82b", colorName: "Brazen" },
+    "Albania": { hex: "#86190d", colorName: "Grubby Red" },
+    "Austria": { hex: "#DCDBDB", colorName: "White" },
+    "Belarus": { hex: "#64D46C", colorName: "Snow Pea" },
+    "Belgium": { hex: "#af8212", colorName: "Brazen" },
     "Bosnia": { hex: "#4727ab", colorName: "Blue Violet" }, 
-    "Bulgaria": { hex: "#128c1a", colorName: "Bogey Green" },
+    "Bulgaria": { hex: "#19721f", colorName: "Bogey Green" },
     "Croatia": { hex: "#845392", colorName: "Purple Tanzanite" },
-    "Cyprus": { hex: "#e26732", colorName: "Muted Copper" },
-    "Czechia": { hex: "#e26732", colorName: "Dazzling Blue" },
-    "Denmark": { hex: "#a9836a", colorName: "Toasted Bagel" },
-    "Estonia": { hex: "#4d8cea", colorName: "Bright Greek" },
-    "Finland": { hex: "#dbf1ff", colorName: "Snow" },
-    "France": { hex: "#42a7ff", colorName: "Blossom Blue" },
+    "Cyprus": { hex: "#cfa667", colorName: "Muted Copper" },
+    "Czechia": { hex: "#2e4ea1", colorName: "Dazzling Blue" },
+    "Denmark": { hex: "#986849", colorName: "Toasted Bagel" },
+    "Estonia": { hex: "#4466a9", colorName: "Bright Greek" },
+    "Finland": { hex: "#c0d6e4", colorName: "Pale Blue" },
+    "France": { hex: "#4c7aa9", colorName: "Blossom Blue" },
     "Germany": { hex: "#464037", colorName: "Dark Gray" },
-    "Greece": { hex: "#2fd0f9", colorName: "Rainy Mood" }, 
-    "Hungary": { hex: "#e4a372", colorName: "Caramel Bar" },
-    "Iceland": { hex: "#5581a5", colorName: "Dark Slate" },
+    "Greece": { hex: "#4094a9", colorName: "Rainy Mood" }, 
+    "Hungary": { hex: "#d79665", colorName: "Caramel Bar" },
+    "Iceland": { hex: "#4f6170", colorName: "Dark Slate" },
     "Ireland": { hex: "#19801e", colorName: "Asian Spice" },
-    "Italy": { hex: "#136318", colorName: "Crusoe Green" },
-    "Kosovo": { hex: "#a63030", colorName: "Crimson" },
-    "Latvia": { hex: "#cba8ff", colorName: "Lavanda" },
+    "Italy": { hex: "#155d2c", colorName: "Crusoe Green" },
+    "Kosovo": { hex: "#b4513a", colorName: "Crimson" },
+    "Latvia": { hex: "#b9818c", colorName: "Lavanda" },
     "Lithuania": { hex: "#be9722", colorName: "Gold Nugget" },
-    "Luxembourg": { hex: "#00d0f5", colorName: "Verditer" },
+    "Luxembourg": { hex: "#00bfa9", colorName: "Verditer" },
     "Moldavia": { hex: "#D3893D", colorName: "Autumn" },
-    "Montenegro": { hex: "#bc835c", colorName: "Tapestry Red" },
+    "Montenegro": { hex: "#bc685b", colorName: "Tapestry Red" },
     "Netherlands": { hex: "#d17e39", colorName: "Phoenix" },
-    "North Macedonia": { hex: "#df907c", colorName: "Tan" },
+    "North Macedonia": { hex: "#b27c5e", colorName: "Tan" },
     "Norway": { hex: "#6b2120", colorName: "Dark Burgundy" },
-    "Poland": { hex: "#eb94af", colorName: "Silk Ribbon" },
-    "Portugal": { hex: "#004d04", colorName: "Rock Mold Green" },
-    "Romania": { hex: "#f5c451", colorName: "Cremini" },
+    "Poland": { hex: "#c36381", colorName: "Silk Ribbon" },
+    "Portugal": { hex: "#05640a", colorName: "Rock Mold Green" },
+    "Romania": { hex: "#d3a73d", colorName: "Cremini" },
     "Russia": { hex: "#369746", colorName: "Forest" },
     "Serbia": { hex: "#646aab", colorName: "Purple Night" },
     "Slovakia": { hex: "#768788", colorName: "Shadow Effect" },
-    "Slovenia": { hex: "#5f6cc8", colorName: "Obsidian Shell" },
-    "Spain": { hex: "#dfa049", colorName: "Dusk" },
-    "Sweden": { hex: "#1a4bff", colorName: "Depths of Night" },
+    "Slovenia": { hex: "#4b1069", colorName: "Obsidian Shell" },
+    "Spain": { hex: "#cd882a", colorName: "Dusk" },
+    "Sweden": { hex: "#2a2ca8", colorName: "Depths of Night" },
     "Switzerland": { hex: "#a10b0a", colorName: "Christmas Red" },
-    "Ukraine": { hex: "#427bff", colorName: "Lapis Lazuli" },
-    "United Kingdom": { hex: "#f44893", colorName: "Raspberry" }
+    "Ukraine": { hex: "#1c5c9b", colorName: "Lapis Lazuli" },
+    "United Kingdom": { hex: "#cb2e48", colorName: "Raspberry" }
   },
   "América": {
-    "Estados Unidos": { hex: "#1c3c5e", colorName: "Navy Blue" },
-    "Canadá": { hex: "#b45f5e", colorName: "Rosewood" },
-    "México": { hex: "#1e5425", colorName: "Pine Green" },
-    "Brasil": { hex: "#467b46", colorName: "Jungle Green" },
     "Argentina": { hex: "#5a8eaa", colorName: "Dull Sky Blue" },
+    "Bolivia": { hex: "#b1855a", colorName: "Earth Brown" },
+    "Brasil": { hex: "#467b46", colorName: "Jungle Green" },
+    "Canadá": { hex: "#b45f5e", colorName: "Rosewood" },
     "Chile": { hex: "#9b4541", colorName: "Faded Crimson" },
     "Colombia": { hex: "#c4a34b", colorName: "Muted Gold" },
-    "Venezuela": { hex: "#c89b43", colorName: "Bronze Yellow" },
-    "Perú": { hex: "#a13f3d", colorName: "Brick Red" },
-    "Bolivia": { hex: "#b1855a", colorName: "Earth Brown" },
-    "Cuba": { hex: "#4a7979", colorName: "Faded Teal" },
-    "Uruguay": { hex: "#a39965", colorName: "Khaki Yellow" },
-    "Paraguay": { hex: "#576b5d", colorName: "Muted Green" },
-    "Ecuador": { hex: "#c4a962", colorName: "Dusty Yellow" },
-    "Guatemala": { hex: "#638a8c", colorName: "Faded Cyan" },
-    "Honduras": { hex: "#3e6475", colorName: "Steel Blue" },
-    "El Salvador": { hex: "#415a75", colorName: "Deep Slate" },
-    "Nicaragua": { hex: "#51758a", colorName: "Muted Azure" },
     "Costa Rica": { hex: "#8c3b3b", colorName: "Faded Crimson" },
-    "Panamá": { hex: "#8a5849", colorName: "Dusty Rust" },
-    "República Dominicana": { hex: "#624d73", colorName: "Muted Purple" },
+    "Cuba": { hex: "#4a7979", colorName: "Faded Teal" },
+    "Ecuador": { hex: "#c4a962", colorName: "Dusty Yellow" },
+    "El Salvador": { hex: "#415a75", colorName: "Deep Slate" },
+    "Estados Unidos": { hex: "#1c3c5e", colorName: "Navy Blue" },
+    "Guatemala": { hex: "#638a8c", colorName: "Faded Cyan" },
     "Haití": { hex: "#3f4c6b", colorName: "Dull Indigo" },
-    "Jamaica": { hex: "#6a7343", colorName: "Olive" }
+    "Honduras": { hex: "#3e6475", colorName: "Steel Blue" },
+    "Jamaica": { hex: "#6a7343", colorName: "Olive" },
+    "México": { hex: "#1e5425", colorName: "Pine Green" },
+    "Nicaragua": { hex: "#51758a", colorName: "Muted Azure" },
+    "Panamá": { hex: "#8a5849", colorName: "Dusty Rust" },
+    "Paraguay": { hex: "#576b5d", colorName: "Muted Green" },
+    "Perú": { hex: "#a13f3d", colorName: "Brick Red" },
+    "República Dominicana": { hex: "#624d73", colorName: "Muted Purple" },
+    "Uruguay": { hex: "#a39965", colorName: "Khaki Yellow" },
+    "Venezuela": { hex: "#c89b43", colorName: "Bronze Yellow" }
   },
   "Asia": {
-    "Japón": { hex: "#a33632", colorName: "Crimson Red" },
-    "China": { hex: "#c68d46", colorName: "Ochre" },
-    "India": { hex: "#b85f5f", colorName: "Raj Pink" },
-    "Pakistán": { hex: "#2b5c38", colorName: "Deep Islamic Green" },
-    "Irán": { hex: "#456336", colorName: "Olive Drab" },
-    "Turquía": { hex: "#5e694b", colorName: "Khaki Green" },
-    "Arabia Saudita": { hex: "#2d5e2e", colorName: "Hunter Green" },
-    "Irak": { hex: "#9b7241", colorName: "Camel Brown" },
-    "Tailandia": { hex: "#b2a868", colorName: "Desert Sand" },
-    "Corea del Sur": { hex: "#355a7a", colorName: "Steel Blue" },
-    "Corea del Norte": { hex: "#7a3131", colorName: "Faded Maroon" },
-    "Vietnam": { hex: "#c44b33", colorName: "Terracotta" },
     "Afganistán": { hex: "#5c755e", colorName: "Dusty Pine" },
-    "Siria": { hex: "#8a6650", colorName: "Desert Rust" },
-    "Yemen": { hex: "#8a4545", colorName: "Faded Oxblood" },
-    "Omán": { hex: "#a68863", colorName: "Sandstone" },
-    "Emiratos Árabes": { hex: "#b5a278", colorName: "Dull Gold" },
-    "Jordania": { hex: "#7a5c5c", colorName: "Muted Rose" },
-    "Líbano": { hex: "#5c7a65", colorName: "Faded Cedar" },
-    "Israel": { hex: "#537491", colorName: "Muted Sapphire" },
-    "Kazajistán": { hex: "#5f8f9e", colorName: "Steppe Blue" },
-    "Uzbekistán": { hex: "#487a6b", colorName: "Teal Green" },
-    "Mongolia": { hex: "#8c704b", colorName: "Nomad Brown" },
-    "Indonesia": { hex: "#a14f4f", colorName: "Dull Ruby" },
-    "Malasia": { hex: "#a3863c", colorName: "Antique Brass" },
-    "Filipinas": { hex: "#48688a", colorName: "Pacific Blue" },
-    "Myanmar": { hex: "#9e844a", colorName: "Brass" },
+    "Arabia Saudita": { hex: "#2d5e2e", colorName: "Hunter Green" },
     "Bangladesh": { hex: "#3a6142", colorName: "Jungle Green" },
-    "Taiwán": { hex: "#4c6680", colorName: "Slate Blue" }
+    "China": { hex: "#c68d46", colorName: "Ochre" },
+    "Corea del Norte": { hex: "#7a3131", colorName: "Faded Maroon" },
+    "Corea del Sur": { hex: "#355a7a", colorName: "Steel Blue" },
+    "Emiratos Árabes": { hex: "#b5a278", colorName: "Dull Gold" },
+    "Filipinas": { hex: "#48688a", colorName: "Pacific Blue" },
+    "India": { hex: "#b85f5f", colorName: "Raj Pink" },
+    "Indonesia": { hex: "#a14f4f", colorName: "Dull Ruby" },
+    "Irak": { hex: "#9b7241", colorName: "Camel Brown" },
+    "Irán": { hex: "#456336", colorName: "Olive Drab" },
+    "Israel": { hex: "#537491", colorName: "Muted Sapphire" },
+    "Japón": { hex: "#a33632", colorName: "Crimson Red" },
+    "Jordania": { hex: "#7a5c5c", colorName: "Muted Rose" },
+    "Kazajistán": { hex: "#5f8f9e", colorName: "Steppe Blue" },
+    "Líbano": { hex: "#5c7a65", colorName: "Faded Cedar" },
+    "Malasia": { hex: "#a3863c", colorName: "Antique Brass" },
+    "Mongolia": { hex: "#8c704b", colorName: "Nomad Brown" },
+    "Myanmar": { hex: "#9e844a", colorName: "Brass" },
+    "Omán": { hex: "#a68863", colorName: "Sandstone" },
+    "Pakistán": { hex: "#2b5c38", colorName: "Deep Islamic Green" },
+    "Siria": { hex: "#8a6650", colorName: "Desert Rust" },
+    "Tailandia": { hex: "#b2a868", colorName: "Desert Sand" },
+    "Taiwán": { hex: "#4c6680", colorName: "Slate Blue" },
+    "Turquía": { hex: "#5e694b", colorName: "Khaki Green" },
+    "Uzbekistán": { hex: "#487a6b", colorName: "Teal Green" },
+    "Vietnam": { hex: "#c44b33", colorName: "Terracotta" },
+    "Yemen": { hex: "#8a4545", colorName: "Faded Oxblood" }
   },
   "África": {
-    "Sudáfrica": { hex: "#bb7b4e", colorName: "Rust Orange" },
+    "Angola": { hex: "#8c3b3b", colorName: "Oxblood" },
+    "Argelia": { hex: "#426b42", colorName: "Dusty Green" },
     "Egipto": { hex: "#c7a56a", colorName: "Sand" },
     "Etiopía": { hex: "#3b633b", colorName: "Dark Fern" },
-    "Marruecos": { hex: "#a54545", colorName: "Muted Red" },
-    "Argelia": { hex: "#426b42", colorName: "Dusty Green" },
-    "Liberia": { hex: "#223555", colorName: "Deep Indigo" },
-    "Angola": { hex: "#8c3b3b", colorName: "Oxblood" },
-    "Libia": { hex: "#6c8052", colorName: "Olive Sand" },
-    "Túnez": { hex: "#a15959", colorName: "Faded Carmine" },
-    "Sudán": { hex: "#947c5d", colorName: "Desert Brown" },
-    "Somalia": { hex: "#628da6", colorName: "Muted Azure" },
-    "Kenia": { hex: "#7a4a35", colorName: "Earth Red" },
-    "Tanzania": { hex: "#587a41", colorName: "Savanna Green" },
-    "República Democrática del Congo": { hex: "#45668a", colorName: "Basin Blue" },
-    "Nigeria": { hex: "#386b44", colorName: "Forest Green" },
     "Ghana": { hex: "#a68846", colorName: "Ash Gold" },
-    "Malí": { hex: "#ad9c64", colorName: "Sahara Yellow" },
-    "Senegal": { hex: "#63875a", colorName: "Faded Green" },
+    "Kenia": { hex: "#7a4a35", colorName: "Earth Red" },
+    "Liberia": { hex: "#223555", colorName: "Deep Indigo" },
+    "Libia": { hex: "#6c8052", colorName: "Olive Sand" },
     "Madagascar": { hex: "#a3544d", colorName: "Brick Rust" },
+    "Malí": { hex: "#ad9c64", colorName: "Sahara Yellow" },
+    "Marruecos": { hex: "#a54545", colorName: "Muted Red" },
     "Mozambique": { hex: "#4f7560", colorName: "Teal Drab" },
+    "Nigeria": { hex: "#386b44", colorName: "Forest Green" },
+    "República Democrática del Congo": { hex: "#45668a", colorName: "Basin Blue" },
+    "Senegal": { hex: "#63875a", colorName: "Faded Green" },
+    "Somalia": { hex: "#628da6", colorName: "Muted Azure" },
+    "Sudáfrica": { hex: "#bb7b4e", colorName: "Rust Orange" },
+    "Sudán": { hex: "#947c5d", colorName: "Desert Brown" },
+    "Tanzania": { hex: "#587a41", colorName: "Savanna Green" },
+    "Túnez": { hex: "#a15959", colorName: "Faded Carmine" },
     "Zimbabue": { hex: "#7d6b38", colorName: "Khaki" }
   },
   "Oceanía": {
     "Australia": { hex: "#9b6a4a", colorName: "Outback Brown" },
+    "Fiyi": { hex: "#5f8599", colorName: "Reef Blue" },
     "Nueva Zelanda": { hex: "#4f5e4d", colorName: "Fern Drab" },
     "Papúa Nueva Guinea": { hex: "#8c4436", colorName: "Clay Red" },
-    "Fiyi": { hex: "#5f8599", colorName: "Reef Blue" },
     "Salomón": { hex: "#5e7345", colorName: "Isle Green" }
   }
 };
+
 const PALETTE = ['#c0392b', '#2e86c1', '#27ae60', '#f1c40f', '#8e44ad', '#e67e22', '#16a085', '#7f8c8d'];
 
-// Estado global de la aplicación (State)
 const S = {
-  w: 0, h: 0, base: null, labels: null, n: 0, owners: null,
+  w: 0, h: 0, base: null, labels: null, n: 0, 
+  owners: null, groups: null, locked: null, centroids: null,
   countries: [], nextId: 1, active: 1,
   overlay: mkCanvas(), octx: null, ovData: null,
-  paint: mkCanvas(), pctx: null, lines: mkCanvas(),
+  lines: mkCanvas(),
+  items: [], // Textos e imágenes colocados en el mapa
+  groupAnchor: 0, // Provincia base actual para agrupar
+  lasso: null, // Puntos del lazo
+  pendingImgPos: null,
   tool: 'fill', zoom: 1, panX: 0, panY: 0,
   keyframes: [], sel: -1, undo: [], redo: [],
-  caption: '', playing: false, drag: null, space: false, scratch: null
+  caption: '', playing: false, drag: null, space: false
 };
 
 // ==========================================
-// 2. INICIALIZACIÓN DE LA BASE DE DATOS UI
+// 2. ESTADÍSTICAS Y ESTADO
+// ==========================================
+function updateStats(msg) {
+  if (!S.owners || !S.n) {
+    $('status').textContent = msg || '';
+    return;
+  }
+  let colored = 0;
+  for (let i = 1; i <= S.n; i++) {
+    if (S.owners[i] > 0) colored++;
+  }
+  const baseText = `${S.n} provincias detectadas | ${colored} provincias coloreadas`;
+  $('status').textContent = msg ? `${msg} — (${baseText})` : baseText;
+}
+
+// ==========================================
+// 3. BASE DE DATOS DE PAÍSES UI
 // ==========================================
 function initCountryDatabase() {
   const continentSel = $('continentSelect');
   const countrySel = $('countrySelect');
 
-  // Llenar la lista de continentes
   for (const continent in countryDatabase) {
     const opt = document.createElement('option');
-    opt.value = continent;
-    opt.textContent = continent;
+    opt.value = continent; opt.textContent = continent;
     continentSel.appendChild(opt);
   }
 
-  // Cuando cambie el continente, actualizar los países
   continentSel.addEventListener('change', () => {
     countrySel.innerHTML = '';
-    const selectedContinent = continentSel.value;
-    const countries = countryDatabase[selectedContinent];
-
+    const countries = countryDatabase[continentSel.value];
     for (const countryName in countries) {
       const opt = document.createElement('option');
       opt.value = countryName;
-      // Muestra: Nombre País (Nombre del Color)
       opt.textContent = `${countryName} (${countries[countryName].colorName})`; 
       countrySel.appendChild(opt);
     }
   });
 
-  // Disparar evento para llenar países por defecto al cargar
   continentSel.dispatchEvent(new Event('change'));
 
-  // Botón para añadir país de la base de datos al mapa
   $('addDbCountryBtn').addEventListener('click', () => {
     const continent = continentSel.value;
     const countryName = countrySel.value;
     const countryData = countryDatabase[continent][countryName];
-    
-    // Agrega el país con sus datos exactos
+    const existing = S.countries.find(c => c.name === countryName);
+    if (existing) {
+      setActive(existing.id);
+      return;
+    }
     const newCountry = addCountry(countryName, countryData.hex);
-    renderCountries();
-    setActive(newCountry.id);
+    renderCountries(); setActive(newCountry.id);
   });
 }
 
-function setStatus(t) { 
-  $('status').textContent = t || ''; 
+// ==========================================
+// 4. CARGA Y DETECCIÓN DEL MAPA
+// ==========================================
+function loadDefaultBalkanMap() {
+  const img = new Image();
+  img.onload = () => {
+    setMap(img);
+    resetCountries();
+    renderCountries();
+  };
+  img.onerror = () => {
+    demoMap();
+    resetCountries();
+    renderCountries();
+    updateStats('No se encontró "' + DEFAULT_MAP_PATH + '" en la carpeta, se cargó mapa demo.');
+  };
+  img.src = encodeURI(DEFAULT_MAP_PATH);
 }
 
-// ==========================================
-// 3. CARGA Y DETECCIÓN DEL MAPA
-// ==========================================
 function setMap(src) {
   let w = src.width || src.naturalWidth;
   let h = src.height || src.naturalHeight;
-  
-  // Escalar si es muy grande
   const sc = Math.min(1, MAXW / w);
-  w = Math.round(w * sc); 
-  h = Math.round(h * sc);
+  w = Math.round(w * sc); h = Math.round(h * sc);
   
   S.w = w; S.h = h;
-  S.base = mkCanvas(); 
-  S.base.width = w; 
-  S.base.height = h;
+  S.base = mkCanvas(); S.base.width = w; S.base.height = h;
   S.base.getContext('2d').drawImage(src, 0, 0, w, h);
   
-  for (const c of [S.overlay, S.paint, S.lines, cv]) { 
-    c.width = w; 
-    c.height = h; 
-  }
+  for (const c of [S.overlay, S.lines, cv]) { c.width = w; c.height = h; }
   
   S.octx = S.overlay.getContext('2d');
-  S.pctx = S.paint.getContext('2d');
   S.ovData = S.octx.createImageData(w, h);
-  stage.style.width = w + 'px'; 
-  stage.style.height = h + 'px';
+  stage.style.width = w + 'px'; stage.style.height = h + 'px';
   
   detectProvinces();
   
   S.owners = new Int32Array(S.n + 1);
+  S.groups = new Int32Array(S.n + 1);
+  S.locked = new Uint8Array(S.n + 1);
+  for(let i = 1; i <= S.n; i++) S.groups[i] = i;
+  
+  S.items = [];
   S.keyframes = []; S.sel = -1; S.undo = []; S.redo = [];
   
-  renderKeyframes();
-  fitView();
-  redraw();
-  setStatus(S.n + ' provincias detectadas');
+  renderKeyframes(); fitView(); redraw();
 }
 
-function detectProvinces() {
+function detectProvinces(preserveLines = false) {
   const { w, h } = S;
-  const thr = +$('thr').value;
-  const img = S.base.getContext('2d').getImageData(0, 0, w, h).data;
   const N = w * h;
   const isLine = new Uint8Array(N);
-  const lineImg = S.lines.getContext('2d').createImageData(w, h);
-  const ld = lineImg.data;
   
-  // Detectar líneas oscuras basadas en el umbral
-  for (let i = 0; i < N; i++) {
-    const o = i * 4;
-    const a = img[o + 3] / 255;
-    const lum = (0.299 * img[o] + 0.587 * img[o + 1] + 0.114 * img[o + 2]) * a + 255 * (1 - a);
+  if (!preserveLines) {
+    const thr = +$('thr').value;
+    const img = S.base.getContext('2d').getImageData(0, 0, w, h).data;
+    const lineImg = S.lines.getContext('2d').createImageData(w, h);
+    const ld = lineImg.data;
     
-    if (lum < thr) isLine[i] = 1;
-    
-    let al = 0;
-    if (lum < thr) {
-      al = 255;
-    } else if (lum < thr + 60) {
-      al = 255 * (1 - (lum - thr) / 60);
+    for (let i = 0; i < N; i++) {
+      const o = i * 4;
+      const a = img[o + 3] / 255;
+      const lum = (0.299 * img[o] + 0.587 * img[o + 1] + 0.114 * img[o + 2]) * a + 255 * (1 - a);
+      
+      if (lum < thr) isLine[i] = 1;
+      
+      let al = 0;
+      if (lum < thr) al = 255;
+      else if (lum < thr + 50) al = 255 * (1 - (lum - thr) / 50);
+      ld[o] = 20; ld[o + 1] = 20; ld[o + 2] = 20; ld[o + 3] = al;
     }
-    ld[o] = 25; ld[o + 1] = 25; ld[o + 2] = 25; ld[o + 3] = al;
+    S.lines.getContext('2d').putImageData(lineImg, 0, 0);
+  } else {
+    const ld = S.lines.getContext('2d').getImageData(0,0,w,h).data;
+    for (let i = 0; i < N; i++) {
+      if (ld[i*4+3] > 128) isLine[i] = 1; 
+    }
   }
-  S.lines.getContext('2d').putImageData(lineImg, 0, 0);
 
-  // Algoritmo Flood-fill para encontrar provincias cerradas
   let labels = new Int32Array(N);
   const stack = new Int32Array(N);
   let n = 0;
   
   for (let i = 0; i < N; i++) {
     if (isLine[i] || labels[i]) continue;
-    n++;
-    labels[i] = n;
-    let sp = 0; 
-    stack[sp++] = i;
+    n++; labels[i] = n;
+    let sp = 0; stack[sp++] = i;
     
     while (sp) {
-      const p = stack[--sp];
-      const x = p % w;
+      const p = stack[--sp], x = p % w;
       if (x > 0 && !isLine[p - 1] && !labels[p - 1]) { labels[p - 1] = n; stack[sp++] = p - 1; }
       if (x < w - 1 && !isLine[p + 1] && !labels[p + 1]) { labels[p + 1] = n; stack[sp++] = p + 1; }
       if (p >= w && !isLine[p - w] && !labels[p - w]) { labels[p - w] = n; stack[sp++] = p - w; }
@@ -304,13 +322,11 @@ function detectProvinces() {
     }
   }
   
-  // Expandir etiquetas para que los bordes pertenezcan a la provincia
-  for (let pass = 0; pass < 6; pass++) {
+  for (let pass = 0; pass < 5; pass++) {
     const next = labels.slice();
     for (let i = 0; i < N; i++) {
       if (labels[i]) continue;
-      const x = i % w;
-      let l = 0;
+      const x = i % w; let l = 0;
       if (x > 0) l = labels[i - 1];
       if (!l && x < w - 1) l = labels[i + 1];
       if (!l && i >= w) l = labels[i - w];
@@ -319,8 +335,26 @@ function detectProvinces() {
     }
     labels = next;
   }
-  S.labels = labels; 
-  S.n = n;
+  S.labels = labels; S.n = n;
+  computeCentroids();
+}
+
+function computeCentroids() {
+  const { w, h, n, labels } = S;
+  const sx = new Float64Array(n + 1);
+  const sy = new Float64Array(n + 1);
+  const cnt = new Int32Array(n + 1);
+  for (let y = 0; y < h; y++) {
+    const row = y * w;
+    for (let x = 0; x < w; x++) {
+      const r = labels[row + x];
+      if (r) { sx[r] += x; sy[r] += y; cnt[r]++; }
+    }
+  }
+  S.centroids = new Array(n + 1);
+  for (let i = 1; i <= n; i++) {
+    S.centroids[i] = cnt[i] ? { x: sx[i] / cnt[i], y: sy[i] / cnt[i] } : { x: -1, y: -1 };
+  }
 }
 
 function demoMap() {
@@ -339,145 +373,85 @@ function demoMap() {
   const c = mkCanvas(); c.width = w; c.height = h;
   const cx = c.getContext('2d');
   const id = cx.createImageData(w, h); const d = id.data;
-  for (let i = 0; i < w * h; i++) { d[i * 4] = 244; d[i * 4 + 1] = 241; d[i * 4 + 2] = 232; d[i * 4 + 3] = 255; }
+  for (let i = 0; i < w * h; i++) { d[i * 4] = 222; d[i * 4 + 1] = 205; d[i * 4 + 2] = 181; d[i * 4 + 3] = 255; }
   const dark = i => { d[i * 4] = 40; d[i * 4 + 1] = 40; d[i * 4 + 2] = 40; };
   for (let y = 0; y < h - 1; y++) for (let x = 0; x < w - 1; x++) {
     const i = y * w + x;
     if (cell[i] !== cell[i + 1]) { dark(i); dark(i + 1); }
     if (cell[i] !== cell[i + w]) { dark(i); dark(i + w); }
   }
-  for (let x = 0; x < w; x++) { dark(x); dark(w + x); dark((h - 1) * w + x); dark((h - 2) * w + x); }
-  for (let y = 0; y < h; y++) { dark(y * w); dark(y * w + 1); dark(y * w + w - 1); dark(y * w + w - 2); }
   cx.putImageData(id, 0, 0);
   setMap(c);
 }
 
 // ==========================================
-// 4. GESTIÓN DE PAÍSES
+// 5. GESTIÓN DE PAÍSES
 // ==========================================
 function addCountry(name, color) {
-  const c = { 
-    id: S.nextId++, 
-    name: name || ('País ' + S.nextId), 
-    color: color || PALETTE[(S.nextId - 2) % PALETTE.length] 
-  };
-  S.countries.push(c);
-  return c;
+  const c = { id: S.nextId++, name: name || ('País ' + S.nextId), color: color || PALETTE[(S.nextId - 2) % PALETTE.length] };
+  S.countries.push(c); return c;
 }
 
 function resetCountries() {
   S.countries = [];
-  addCountry('Alemania', '#2c3e50');
-  addCountry('Francia', '#2980b9');
+  addCountry('Serbia', '#646aab');
+  addCountry('Croatia', '#845392');
+  addCountry('Bosnia', '#4727ab');
+  addCountry('Austria', '#DCDBDB');
   S.active = S.countries[0].id;
 }
 
 function renderCountries() {
-  const el = $('countries'); 
-  el.innerHTML = '';
-  
+  const el = $('countries'); el.innerHTML = '';
   const rows = [{ id: 0, name: 'Sin Dueño', color: null }, ...S.countries];
   
   rows.forEach((c, idx) => {
-    const row = document.createElement('div');
-    row.className = 'crow'; 
-    row.dataset.id = c.id;
-    
+    const row = document.createElement('div'); row.className = 'crow'; row.dataset.id = c.id;
     if (c.color) {
-      const col = document.createElement('input'); 
-      col.type = 'color'; 
-      col.value = c.color;
-      col.addEventListener('input', () => {
-        c.color = col.value; 
-        redraw();
-        if (S.active === c.id) $('brushColor').value = c.color;
-      });
+      const col = document.createElement('input'); col.type = 'color'; col.value = c.color;
+      col.addEventListener('input', () => { c.color = col.value; redraw(); });
       row.appendChild(col);
     } else {
-      const sp = document.createElement('span'); 
-      sp.className = 'nosw'; 
-      row.appendChild(sp);
+      const sp = document.createElement('span'); sp.className = 'nosw'; row.appendChild(sp);
     }
     
-    const nm = document.createElement('input'); 
-    nm.type = 'text'; 
-    nm.className = 'nm'; 
-    nm.value = c.name;
+    const nm = document.createElement('input'); nm.type = 'text'; nm.className = 'nm'; nm.value = c.name;
     if (!c.color) nm.disabled = true;
-    nm.addEventListener('input', () => { 
-      c.name = nm.value; 
-      updateWarSelects(); 
-    });
+    nm.addEventListener('input', () => { c.name = nm.value; updateWarSelects(); });
     row.appendChild(nm);
     
     if (c.color) {
-      const x = document.createElement('button'); 
-      x.className = 'x'; 
-      x.textContent = '×'; 
-      x.title = 'Eliminar país';
-      x.addEventListener('click', ev => { 
-        ev.stopPropagation(); 
-        deleteCountry(c.id); 
-      });
+      const x = document.createElement('button'); x.className = 'x'; x.textContent = '×'; x.title = 'Eliminar país';
+      x.addEventListener('click', ev => { ev.stopPropagation(); deleteCountry(c.id); });
       row.appendChild(x);
     }
-    
-    const k = document.createElement('span'); 
-    k.className = 'key'; 
-    k.textContent = idx < 10 ? idx : '';
-    row.appendChild(k);
-    
-    row.addEventListener('click', () => setActive(c.id));
-    el.appendChild(row);
+    const k = document.createElement('span'); k.className = 'key'; k.textContent = idx < 10 ? idx : '';
+    row.appendChild(k); row.addEventListener('click', () => setActive(c.id)); el.appendChild(row);
   });
-  markActive(); 
-  updateWarSelects();
+  markActive(); updateWarSelects();
 }
 
-function markActive() {
-  document.querySelectorAll('.crow').forEach(r => {
-    r.classList.toggle('active', +r.dataset.id === S.active);
-  });
-}
-
-function setActive(id) {
-  S.active = id;
-  const c = S.countries.find(c => c.id === id);
-  if (c) $('brushColor').value = c.color;
-  markActive();
-}
-
-function deleteCountry(id) {
-  pushUndo(false);
-  for (let i = 1; i <= S.n; i++) {
-    if (S.owners[i] === id) S.owners[i] = 0;
-  }
-  S.countries = S.countries.filter(c => c.id !== id);
-  if (S.active === id) S.active = S.countries.length ? S.countries[0].id : 0;
-  renderCountries(); 
-  redraw();
+function markActive() { document.querySelectorAll('.crow').forEach(r => { r.classList.toggle('active', +r.dataset.id === S.active); }); }
+function setActive(id) { S.active = id; markActive(); }
+function deleteCountry(id) { 
+  pushUndo(); 
+  for (let i = 1; i <= S.n; i++) { if (S.owners[i] === id && !S.locked[i]) S.owners[i] = 0; } 
+  S.countries = S.countries.filter(c => c.id !== id); 
+  if (S.active === id) S.active = S.countries.length ? S.countries[0].id : 0; 
+  renderCountries(); redraw(); 
 }
 
 function updateWarSelects() {
   for (const id of ['warA', 'warB']) {
-    const sel = $(id);
-    const prev = +sel.value;
-    sel.innerHTML = '';
-    S.countries.forEach(c => {
-      const o = document.createElement('option'); 
-      o.value = c.id; 
-      o.textContent = c.name; 
-      sel.appendChild(o);
-    });
+    const sel = $(id); const prev = +sel.value; sel.innerHTML = '';
+    S.countries.forEach(c => { const o = document.createElement('option'); o.value = c.id; o.textContent = c.name; sel.appendChild(o); });
     if (S.countries.some(c => c.id === prev)) sel.value = prev;
   }
-  if ($('warA').value === $('warB').value && S.countries.length > 1) {
-    $('warB').selectedIndex = 1;
-  }
+  if ($('warA').value === $('warB').value && S.countries.length > 1) { $('warB').selectedIndex = 1; }
 }
 
 // ==========================================
-// 5. REDIBUJADO DE LA PANTALLA
+// 6. MOTOR DE RENDERIZADO (Soporta Blanco + Textos + Imágenes)
 // ==========================================
 function colorTable(owners, countries) {
   const t = new Uint32Array(S.n + 1);
@@ -493,8 +467,7 @@ function lerpTable(A, B, e, out) {
   for (let i = 0; i < A.length; i++) {
     const a = A[i], b = B[i];
     if (a === b) { out[i] = a; continue; }
-    const aa = a >>> 24, ba = b >>> 24;
-    let r, g, bl;
+    const aa = a >>> 24, ba = b >>> 24; let r, g, bl;
     if (!aa) { r = b & 255; g = (b >> 8) & 255; bl = (b >> 16) & 255; }
     else if (!ba) { r = a & 255; g = (a >> 8) & 255; bl = (a >> 16) & 255; }
     else {
@@ -515,327 +488,551 @@ function renderOverlay(table) {
   S.octx.putImageData(S.ovData, 0, 0);
 }
 
+function drawItems(items) {
+  if (!items) return;
+  for (const it of items) {
+    if (it.type === 'text') {
+      const sz = it.size || 22;
+      ctx.font = `bold ${sz}px system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = Math.max(2, sz / 6);
+      ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+      ctx.strokeText(it.text, it.x, it.y);
+      ctx.fillStyle = it.color || '#ffffff';
+      ctx.fillText(it.text, it.x, it.y);
+    } else if (it.type === 'image' && it.img) {
+      ctx.drawImage(it.img, it.x - it.w / 2, it.y - it.h / 2, it.w, it.h);
+    }
+  }
+}
+
 function drawCaption(text) {
   if (!text) return;
   const size = +$('capSize').value || 56;
   ctx.font = 'bold ' + size + 'px system-ui, sans-serif';
+  ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
   const x = size * 0.6;
   const y = $('capPos').value === 'top' ? size * 1.3 : S.h - size * 0.6;
-  ctx.lineJoin = 'round'; 
-  ctx.lineWidth = size / 5;
-  ctx.strokeStyle = 'rgba(255,255,255,.9)'; 
-  ctx.strokeText(text, x, y);
-  ctx.fillStyle = '#111'; 
-  ctx.fillText(text, x, y);
+  ctx.lineJoin = 'round'; ctx.lineWidth = size / 5;
+  ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.strokeText(text, x, y);
+  ctx.fillStyle = '#111'; ctx.fillText(text, x, y);
 }
 
-function compose(paints, caption) {
+function compose(items, caption) {
   const opacity = +$('opacity').value / 100;
   ctx.globalCompositeOperation = 'source-over'; 
   ctx.globalAlpha = 1;
+  ctx.drawImage(S.base, 0, 0);
   
-  if ($('mode').value === 'multiply') {
-    ctx.fillStyle = '#fff'; 
-    ctx.fillRect(0, 0, S.w, S.h);
-    ctx.globalAlpha = opacity; 
+  if ($('mode').value === 'relief') {
+    // Permite que el blanco (#DCDBDB / #FFFFFF) ilumine el terreno beige mientras conserva el relieve
+    ctx.globalCompositeOperation = 'hard-light';
+    ctx.globalAlpha = opacity * 0.78;
     ctx.drawImage(S.overlay, 0, 0);
     
-    for (const [c, a] of paints) { 
-      ctx.globalAlpha = a; 
-      ctx.drawImage(c, 0, 0); 
-    }
-    
-    ctx.globalAlpha = 1; 
-    ctx.globalCompositeOperation = 'multiply';
-    ctx.drawImage(S.base, 0, 0);
     ctx.globalCompositeOperation = 'source-over';
-  } else {
-    ctx.drawImage(S.base, 0, 0);
-    ctx.globalAlpha = opacity; 
+    ctx.globalAlpha = opacity * 0.35;
     ctx.drawImage(S.overlay, 0, 0);
-    for (const [c, a] of paints) { 
-      ctx.globalAlpha = a; 
-      ctx.drawImage(c, 0, 0); 
-    }
-    ctx.globalAlpha = 1; 
+    
+    ctx.globalAlpha = 0.85;
+    ctx.drawImage(S.lines, 0, 0);
+  } else {
+    ctx.globalAlpha = opacity;
+    ctx.drawImage(S.overlay, 0, 0);
+    ctx.globalAlpha = 1;
     ctx.drawImage(S.lines, 0, 0);
   }
+  
+  ctx.globalCompositeOperation = 'source-over';
   ctx.globalAlpha = 1;
+  drawItems(items);
   drawCaption(caption);
+
+  // Dibujar lazo de selección si está activo
+  if (S.lasso && S.lasso.length > 1) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(S.lasso[0].fx, S.lasso[0].fy);
+    for (let i = 1; i < S.lasso.length; i++) ctx.lineTo(S.lasso[i].fx, S.lasso[i].fy);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(241, 196, 15, 0.22)';
+    ctx.fill();
+    ctx.lineWidth = 2 / S.zoom;
+    ctx.strokeStyle = '#f1c40f';
+    ctx.setLineDash([6 / S.zoom, 4 / S.zoom]);
+    ctx.stroke();
+    ctx.restore();
+  }
 }
 
-function redraw() {
-  if (!S.labels || S.playing) return;
-  renderOverlay(colorTable(S.owners, S.countries));
-  compose([[S.paint, 1]], S.caption);
+function redraw(msg) { 
+  if (!S.labels || S.playing) return; 
+  renderOverlay(colorTable(S.owners, S.countries)); 
+  compose(S.items, S.caption); 
+  updateStats(msg);
 }
-
 function recompose() { 
-  if (S.labels && !S.playing) compose([[S.paint, 1]], S.caption); 
+  if (S.labels && !S.playing) compose(S.items, S.caption); 
 }
 
 // ==========================================
-// 6. DESHACER / REHACER (UNDO / REDO)
+// 7. DESHACER / REHACER
 // ==========================================
-function snap(withPaint) {
+function cloneItems(items) {
+  return items.map(it => ({ ...it }));
+}
+function snap() {
   return {
     owners: S.owners.slice(), 
+    groups: S.groups.slice(),
+    locked: S.locked.slice(),
     countries: S.countries.map(c => ({ ...c })),
-    paint: withPaint ? S.pctx.getImageData(0, 0, S.w, S.h) : null
+    items: cloneItems(S.items)
   };
 }
-function pushUndo(withPaint) {
-  S.undo.push(snap(withPaint)); 
-  if (S.undo.length > 20) S.undo.shift(); 
-  S.redo.length = 0;
-}
+function pushUndo() { S.undo.push(snap()); if (S.undo.length > 25) S.undo.shift(); S.redo.length = 0; }
 function restore(e) {
   S.owners = e.owners.slice(); 
+  S.groups = e.groups.slice(); 
+  S.locked = e.locked.slice();
   S.countries = e.countries.map(c => ({ ...c }));
-  if (e.paint) S.pctx.putImageData(e.paint, 0, 0);
-  renderCountries(); 
-  redraw();
+  S.items = cloneItems(e.items);
+  renderCountries(); redraw();
 }
-function undo() { 
-  const e = S.undo.pop(); 
-  if (!e) return; 
-  S.redo.push(snap(!!e.paint)); 
-  restore(e); 
-}
-function redo() { 
-  const e = S.redo.pop(); 
-  if (!e) return; 
-  S.undo.push(snap(!!e.paint)); 
-  restore(e); 
-}
+function undo() { const e = S.undo.pop(); if (!e) return; S.redo.push(snap()); restore(e); }
+function redo() { const e = S.redo.pop(); if (!e) return; S.undo.push(snap()); restore(e); }
 
 // ==========================================
-// 7. VISTA (ZOOM Y PANEO)
+// 8. INTERACCIÓN, LAZO, ELEMENTOS Y MENÚ CLIC DERECHO
 // ==========================================
-function applyView() { 
-  stage.style.transform = `translate(${S.panX}px,${S.panY}px) scale(${S.zoom})`; 
-}
+function applyView() { stage.style.transform = `translate(${S.panX}px,${S.panY}px) scale(${S.zoom})`; }
 function fitView() {
   const vw = view.clientWidth, vh = view.clientHeight;
   S.zoom = Math.min(vw / S.w, vh / S.h) * 0.98;
-  S.panX = (vw - S.w * S.zoom) / 2; 
-  S.panY = (vh - S.h * S.zoom) / 2;
-  applyView();
+  S.panX = (vw - S.w * S.zoom) / 2; S.panY = (vh - S.h * S.zoom) / 2; applyView();
 }
+
 view.addEventListener('wheel', e => {
-  e.preventDefault();
+  e.preventDefault(); hideCtxMenu();
   const r = view.getBoundingClientRect();
   const mx = e.clientX - r.left, my = e.clientY - r.top;
   const nz = clamp(S.zoom * (e.deltaY < 0 ? 1.15 : 1 / 1.15), 0.05, 20);
-  S.panX = mx - (mx - S.panX) * (nz / S.zoom);
-  S.panY = my - (my - S.panY) * (nz / S.zoom);
-  S.zoom = nz; 
-  applyView();
+  S.panX = mx - (mx - S.panX) * (nz / S.zoom); S.panY = my - (my - S.panY) * (nz / S.zoom);
+  S.zoom = nz; applyView();
 }, { passive: false });
-view.addEventListener('contextmenu', e => e.preventDefault());
 window.addEventListener('resize', () => { if (S.labels) fitView(); });
 
-// ==========================================
-// 8. EDICIÓN DEL MAPA EN VIVO
-// ==========================================
 function toMap(e) {
   const r = cv.getBoundingClientRect();
-  const fx = (e.clientX - r.left) / r.width * S.w;
-  const fy = (e.clientY - r.top) / r.height * S.h;
+  const fx = (e.clientX - r.left) / r.width * S.w; const fy = (e.clientY - r.top) / r.height * S.h;
   return { fx, fy, x: clamp(Math.floor(fx), 0, S.w - 1), y: clamp(Math.floor(fy), 0, S.h - 1) };
 }
 
 const regionAt = p => S.labels[p.y * S.w + p.x];
 
-function assign(p, id) {
-  const r = regionAt(p);
-  if (!r || S.owners[r] === id) return;
-  S.owners[r] = id; 
-  redraw();
-}
-
-function brushColor() { return $('brushColor').value; }
-function brushSize() { return +$('brushSize').value; }
-
-function strokeSeg(a, b) {
-  const c = S.pctx;
-  c.globalCompositeOperation = S.tool === 'eraser' ? 'destination-out' : 'source-over';
-  c.strokeStyle = c.fillStyle = brushColor();
-  c.lineWidth = brushSize(); 
-  c.lineCap = 'round'; 
-  c.lineJoin = 'round';
-  c.beginPath(); 
-  c.moveTo(a.fx, a.fy); 
-  c.lineTo(b.fx, b.fy); 
-  c.stroke();
-  if (a.fx === b.fx && a.fy === b.fy) { 
-    c.beginPath(); 
-    c.arc(a.fx, a.fy, brushSize() / 2, 0, 7); 
-    c.fill(); 
+function isGroupLocked(targetGroup) {
+  for (let i = 1; i <= S.n; i++) {
+    if (S.groups[i] === targetGroup && S.locked[i]) return true;
   }
-  c.globalCompositeOperation = 'source-over';
+  return false;
 }
 
-function lockedDab(fx, fy, region) {
-  const r = brushSize() / 2;
-  const x0 = Math.max(0, Math.floor(fx - r)), y0 = Math.max(0, Math.floor(fy - r));
-  const x1 = Math.min(S.w, Math.ceil(fx + r)), y1 = Math.min(S.h, Math.ceil(fy + r));
-  const ww = x1 - x0, hh = y1 - y0;
-  if (ww <= 0 || hh <= 0) return;
+function setGroupLock(targetGroup, lockVal) {
+  for (let i = 1; i <= S.n; i++) {
+    if (S.groups[i] === targetGroup) S.locked[i] = lockVal ? 1 : 0;
+  }
+}
+
+function assignRegion(r, id) {
+  if (!r) return;
+  const targetGroup = S.groups[r];
+  if (isGroupLocked(targetGroup)) {
+    updateStats('🔒 Esta provincia está bloqueada.');
+    return;
+  }
+  let changed = false;
+  for (let i = 1; i <= S.n; i++) {
+    if (S.groups[i] === targetGroup && !S.locked[i]) {
+      if (S.owners[i] !== id) { S.owners[i] = id; changed = true; }
+    }
+  }
+  if (changed) redraw();
+}
+
+function assign(p, id) { assignRegion(regionAt(p), id); }
+
+// Algoritmo Point-in-Polygon para el lazo
+function pointInPoly(x, y, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i].fx, yi = poly[i].fy;
+    const xj = poly[j].fx, yj = poly[j].fy;
+    const intersect = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi + 1e-9) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+function applyLassoGroup(poly) {
+  const insideRegions = [];
+  for (let i = 1; i <= S.n; i++) {
+    const c = S.centroids[i];
+    if (c && c.x >= 0 && pointInPoly(c.x, c.y, poly)) insideRegions.push(i);
+  }
+  if (!insideRegions.length) return updateStats('Ninguna provincia dentro del lazo.');
   
-  const id = S.pctx.getImageData(x0, y0, ww, hh), d = id.data;
-  const erase = S.tool === 'eraser';
-  const rgb = hex2rgb(brushColor());
-  const r2 = r * r;
-  
-  for (let y = y0; y < y1; y++) {
-    for (let x = x0; x < x1; x++) {
-      const dx = x + 0.5 - fx, dy = y + 0.5 - fy;
-      if (dx * dx + dy * dy > r2 || S.labels[y * S.w + x] !== region) continue;
-      const o = ((y - y0) * ww + (x - x0)) * 4;
-      if (erase) {
-        d[o + 3] = 0; 
-      } else { 
-        d[o] = rgb[0]; d[o + 1] = rgb[1]; d[o + 2] = rgb[2]; d[o + 3] = 255; 
+  pushUndo();
+  const baseR = (S.groupAnchor && S.groups[S.groupAnchor]) ? S.groupAnchor : insideRegions[0];
+  const targetG = S.groups[baseR];
+  const owner = S.owners[baseR];
+  S.groupAnchor = baseR;
+
+  const groupsToMerge = new Set(insideRegions.map(r => S.groups[r]));
+  for (let i = 1; i <= S.n; i++) {
+    if (groupsToMerge.has(S.groups[i]) && !S.locked[i]) {
+      S.groups[i] = targetG;
+      S.owners[i] = owner;
+    }
+  }
+  redraw(`🔗 ${insideRegions.length} provincias agrupadas con éxito.`);
+}
+
+// Búsqueda de Textos o Imágenes en una coordenada
+function itemAt(p) {
+  for (let i = S.items.length - 1; i >= 0; i--) {
+    const it = S.items[i];
+    if (it.type === 'text') {
+      const w = Math.max(40, it.text.length * it.size * 0.55);
+      const h = it.size * 1.2;
+      if (Math.abs(p.fx - it.x) <= w / 2 && Math.abs(p.fy - it.y) <= h / 2) return i;
+    } else if (it.type === 'image') {
+      if (Math.abs(p.fx - it.x) <= it.w / 2 && Math.abs(p.fy - it.y) <= it.h / 2) return i;
+    }
+  }
+  return -1;
+}
+
+function addTextAt(p, customText) {
+  const txt = customText !== undefined ? customText : ($('mapTextInput').value.trim() || prompt('Texto a añadir en el mapa:'));
+  if (!txt) return;
+  pushUndo();
+  S.items.push({
+    type: 'text',
+    x: p.fx, y: p.fy,
+    text: txt,
+    size: +$('itemSize').value || 22,
+    color: $('itemColor').value || '#ffffff'
+  });
+  redraw('Texto añadido');
+}
+
+function triggerImageAt(p) {
+  S.pendingImgPos = p;
+  $('itemImgFile').click();
+}
+
+$('itemImgFile').addEventListener('change', e => {
+  const f = e.target.files[0]; if (!f || !S.pendingImgPos) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const src = ev.target.result;
+    const img = new Image();
+    img.onload = () => {
+      pushUndo();
+      const baseSize = (+$('itemSize').value || 22) * 3;
+      const ratio = img.width / img.height;
+      const w = ratio >= 1 ? baseSize : baseSize * ratio;
+      const h = ratio >= 1 ? baseSize / ratio : baseSize;
+      S.items.push({ type: 'image', x: S.pendingImgPos.fx, y: S.pendingImgPos.fy, w, h, src, img });
+      redraw('Imagen añadida');
+    };
+    img.src = src;
+  };
+  reader.readAsDataURL(f);
+  e.target.value = '';
+});
+
+function strokeSplit(a, b) {
+  [S.lines.getContext('2d'), S.base.getContext('2d')].forEach(c => {
+    c.globalCompositeOperation = 'source-over';
+    c.strokeStyle = c.fillStyle = '#141414';
+    c.lineWidth = 2.2; c.lineCap = 'round'; c.lineJoin = 'round';
+    c.beginPath(); c.moveTo(a.fx, a.fy); c.lineTo(b.fx, b.fy); c.stroke();
+  });
+}
+
+function applySplit() {
+  updateStats('Calculando nuevas fronteras...');
+  setTimeout(() => {
+    const oldLabels = S.labels, oldOwners = S.owners, oldGroups = S.groups, oldLocked = S.locked;
+    detectProvinces(true);
+    const newOwners = new Int32Array(S.n + 1), newGroups = new Int32Array(S.n + 1), newLocked = new Uint8Array(S.n + 1);
+    const tallies = Array.from({length: S.n + 1}, () => new Map());
+    
+    for (let i = 0; i < S.w * S.h; i++) {
+      const nL = S.labels[i], oL = oldLabels[i];
+      if (nL && oL) { const t = tallies[nL]; t.set(oL, (t.get(oL) || 0) + 1); }
+    }
+    for (let i = 1; i <= S.n; i++) {
+      let bestOld = 0, max = 0;
+      for (const [oL, count] of tallies[i].entries()) {
+        if (count > max) { max = count; bestOld = oL; }
+      }
+      if (bestOld) {
+        newOwners[i] = oldOwners[bestOld];
+        newGroups[i] = oldGroups ? oldGroups[bestOld] : bestOld;
+        newLocked[i] = oldLocked ? oldLocked[bestOld] : 0;
+      } else {
+        newGroups[i] = i;
       }
     }
-  }
-  S.pctx.putImageData(id, x0, y0);
+    S.owners = newOwners; S.groups = newGroups; S.locked = newLocked;
+    S.undo = []; S.redo = [];
+    redraw('Frontera creada');
+  }, 10);
 }
 
-function brushMove(a, b) {
-  if ($('lockBrush').checked && S.drag.region) {
-    const dist = Math.hypot(b.fx - a.fx, b.fy - a.fy);
-    const step = Math.max(1, brushSize() / 6);
-    const n = Math.max(1, Math.ceil(dist / step));
-    for (let i = 1; i <= n; i++) {
-      lockedDab(a.fx + (b.fx - a.fx) * i / n, a.fy + (b.fy - a.fy) * i / n, S.drag.region);
+// ==========================================
+// 9. MENÚ CONTEXTUAL (CLIC DERECHO)
+// ==========================================
+function hideCtxMenu() { ctxMenu.hidden = true; }
+window.addEventListener('click', e => { if (!ctxMenu.contains(e.target)) hideCtxMenu(); });
+
+view.addEventListener('contextmenu', e => {
+  e.preventDefault();
+  if (!S.labels || S.playing) return;
+  const p = toMap(e);
+  const r = regionAt(p);
+  const hitItemIdx = itemAt(p);
+  
+  ctxMenu.innerHTML = '';
+  const addHeader = txt => {
+    const h = document.createElement('div'); h.className = 'ctx-head'; h.textContent = txt; ctxMenu.appendChild(h);
+  };
+  const addItem = (label, fn) => {
+    const div = document.createElement('div'); div.className = 'ctx-item'; div.textContent = label;
+    div.onclick = () => { hideCtxMenu(); fn(); };
+    ctxMenu.appendChild(div);
+  };
+  const addSep = () => {
+    const s = document.createElement('div'); s.className = 'ctx-sep'; ctxMenu.appendChild(s);
+  };
+
+  if (r) {
+    const g = S.groups[r];
+    const locked = isGroupLocked(g);
+    const ownerObj = S.countries.find(c => c.id === S.owners[r]);
+    addHeader(`Provincia #${r} (${ownerObj ? ownerObj.name : 'Sin Dueño'})`);
+    
+    addItem(locked ? '🔓 Desbloquear provincia' : '🔒 Bloquear provincia (No editable)', () => {
+      pushUndo();
+      setGroupLock(g, !locked);
+      redraw(!locked ? '🔒 Provincia bloqueada' : '🔓 Provincia desbloqueada');
+    });
+
+    if (!locked) {
+      const actCountry = S.countries.find(c => c.id === S.active);
+      if (actCountry) {
+        addItem(`🏳️ Asignar a ${actCountry.name}`, () => { pushUndo(); assignRegion(r, S.active); });
+      }
+      addItem('🏳️ Desasignar (Sin Dueño)', () => { pushUndo(); assignRegion(r, 0); });
+      addSep();
+      addItem('🔗 Fijar como base de grupo', () => { S.groupAnchor = r; updateStats(`Provincia #${r} fijada como base de grupo.`); });
+      if (S.groupAnchor && S.groupAnchor !== r) {
+        addItem(`🔗 Unir al grupo de #${S.groupAnchor}`, () => {
+          pushUndo();
+          const targetG = S.groups[S.groupAnchor];
+          const targetOwner = S.owners[S.groupAnchor];
+          for (let i = 1; i <= S.n; i++) if (S.groups[i] === g) { S.groups[i] = targetG; S.owners[i] = targetOwner; }
+          redraw('🔗 Provincias agrupadas');
+        });
+      }
+      addItem('✂️ Desagrupar esta provincia', () => { pushUndo(); S.groups[r] = r; redraw('Provincia desagrupada'); });
     }
-  } else {
-    strokeSeg(a, b);
+    addSep();
   }
-  recompose();
-}
 
+  addItem('🔤 Añadir etiqueta de texto aquí...', () => {
+    const t = prompt('Escribe el texto (ej. Capital, País, Alianza):', $('mapTextInput').value || '');
+    if (t) addTextAt(p, t);
+  });
+  addItem('🖼️ Añadir imagen aquí...', () => triggerImageAt(p));
+
+  if (hitItemIdx >= 0) {
+    addSep();
+    const hit = S.items[hitItemIdx];
+    if (hit.type === 'text') {
+      addItem(`✏️ Editar texto "${hit.text}"`, () => {
+        const nt = prompt('Nuevo texto:', hit.text);
+        if (nt !== null && nt.trim()) { pushUndo(); hit.text = nt.trim(); redraw(); }
+      });
+    }
+    addItem('🗑️ Eliminar este elemento', () => { pushUndo(); S.items.splice(hitItemIdx, 1); redraw('Elemento eliminado'); });
+  }
+
+  ctxMenu.hidden = false;
+  const mw = 220, mh = ctxMenu.offsetHeight || 240;
+  ctxMenu.style.left = Math.min(e.clientX, window.innerWidth - mw - 10) + 'px';
+  ctxMenu.style.top = Math.min(e.clientY, window.innerHeight - mh - 10) + 'px';
+});
+
+// ==========================================
+// 10. EVENTOS DEL PUNTERO EN EL MAPA
+// ==========================================
 view.addEventListener('pointerdown', e => {
   if (S.playing || !S.labels) return;
+  if (e.button === 2) return; // Clic derecho reservado para el menú contextual
+  hideCtxMenu();
   view.setPointerCapture(e.pointerId);
-  if (e.button === 1 || e.button === 2 || S.space || S.tool === 'pan') {
+  
+  if (e.button === 1 || S.space || S.tool === 'pan') {
     S.drag = { type: 'pan', x: e.clientX, y: e.clientY, px: S.panX, py: S.panY }; 
     return;
   }
   if (e.button !== 0) return;
   const p = toMap(e);
+  
   switch (S.tool) {
-    case 'fill': 
-      pushUndo(false); S.drag = { type: 'fill' }; assign(p, S.active); break;
-    case 'unown': 
-      pushUndo(false); S.drag = { type: 'unown' }; assign(p, 0); break;
+    case 'fill': pushUndo(); S.drag = { type: 'fill' }; assign(p, S.active); break;
+    case 'unown': pushUndo(); S.drag = { type: 'unown' }; assign(p, 0); break;
+    case 'group':
+      S.drag = { type: 'group', startP: p, isLasso: false };
+      S.lasso = [p];
+      break;
+    case 'ungroup':
+      pushUndo(); S.drag = { type: 'ungroup' }; 
+      const ru = regionAt(p); if (ru && !S.locked[ru]) { S.groups[ru] = ru; redraw(); }
+      break;
     case 'pick': 
-      const r = regionAt(p); if (r) setActive(S.owners[r]); break;
-    case 'brush': case 'eraser':
-      pushUndo(true);
-      S.drag = { type: 'brush', last: p, region: regionAt(p) };
-      if ($('lockBrush').checked) lockedDab(p.fx, p.fy, S.drag.region); else strokeSeg(p, p);
-      recompose();
+      const rp = regionAt(p); if (rp) setActive(S.owners[rp]); break;
+    case 'split': 
+      S.drag = { type: 'split', last: p, moved: false }; strokeSplit(p, p); recompose(); break;
+    case 'text':
+      addTextAt(p); break;
+    case 'image':
+      triggerImageAt(p); break;
+    case 'moveItem':
+      const idx = itemAt(p);
+      if (idx >= 0) {
+        pushUndo();
+        S.drag = { type: 'moveItem', idx, ox: S.items[idx].x - p.fx, oy: S.items[idx].y - p.fy };
+      }
       break;
   }
 });
+
 view.addEventListener('pointermove', e => {
   const d = S.drag; if (!d) return;
-  if (d.type === 'pan') { 
-    S.panX = d.px + e.clientX - d.x; 
-    S.panY = d.py + e.clientY - d.y; 
-    applyView(); 
-    return; 
-  }
+  if (d.type === 'pan') { S.panX = d.px + e.clientX - d.x; S.panY = d.py + e.clientY - d.y; applyView(); return; }
   const p = toMap(e);
+  
   if (d.type === 'fill') assign(p, S.active);
   else if (d.type === 'unown') assign(p, 0);
-  else if (d.type === 'brush') { brushMove(d.last, p); d.last = p; }
+  else if (d.type === 'group') {
+    const dist = Math.hypot(p.fx - d.startP.fx, p.fy - d.startP.fy);
+    if (dist > 6) d.isLasso = true;
+    if (d.isLasso) {
+      S.lasso.push(p);
+      recompose();
+    }
+  }
+  else if (d.type === 'ungroup') {
+    const r = regionAt(p); if (r && !S.locked[r] && S.groups[r] !== r) { S.groups[r] = r; redraw(); }
+  }
+  else if (d.type === 'split') { d.moved = true; strokeSplit(d.last, p); d.last = p; recompose(); }
+  else if (d.type === 'moveItem') {
+    const it = S.items[d.idx];
+    it.x = p.fx + d.ox; it.y = p.fy + d.oy;
+    recompose();
+  }
 });
-const endDrag = () => { S.drag = null; };
-view.addEventListener('pointerup', endDrag);
+
+const endDrag = e => {
+  const d = S.drag; if (!d) return;
+  if (d.type === 'group') {
+    if (d.isLasso && S.lasso.length > 2) {
+      applyLassoGroup(S.lasso);
+    } else {
+      // Agrupación por clic directo
+      const r = regionAt(d.startP);
+      if (r && !S.locked[r]) {
+        if (!S.groupAnchor || !S.groups[S.groupAnchor]) {
+          S.groupAnchor = r;
+          updateStats(`🔗 Provincia #${r} seleccionada como base. Haz clic en otras o usa el lazo para unirlas.`);
+        } else if (r === S.groupAnchor) {
+          S.groupAnchor = 0;
+          updateStats('Selección de grupo reiniciada.');
+        } else {
+          pushUndo();
+          const targetG = S.groups[S.groupAnchor];
+          const owner = S.owners[S.groupAnchor];
+          const oldG = S.groups[r];
+          for (let i = 1; i <= S.n; i++) {
+            if (S.groups[i] === oldG && !S.locked[i]) { S.groups[i] = targetG; S.owners[i] = owner; }
+          }
+          redraw(`🔗 Provincia #${r} unida al grupo #${S.groupAnchor}`);
+        }
+      }
+    }
+    S.lasso = null; recompose();
+  } else if (d.type === 'split' && d.moved) {
+    applySplit();
+  }
+  S.drag = null;
+};
+view.addEventListener('pointerup', endDrag); 
 view.addEventListener('pointercancel', endDrag);
 
 // ==========================================
-// 9. ANIMACIÓN (KEYFRAMES)
+// 11. ANIMACIÓN (KEYFRAMES) Y PROYECTO
 // ==========================================
-function cloneCanvas(c) { 
-  const n = mkCanvas(); 
-  n.width = c.width; 
-  n.height = c.height; 
-  n.getContext('2d').drawImage(c, 0, 0); 
-  return n; 
-}
-
 function makeKeyframe() {
-  return {
+  return { 
     owners: S.owners.slice(), 
+    groups: S.groups.slice(), 
+    locked: S.locked.slice(),
     countries: S.countries.map(c => ({ ...c })), 
-    paint: cloneCanvas(S.paint),
+    items: cloneItems(S.items),
     caption: S.caption, 
     hold: +$('hold').value || 0, 
-    trans: +$('trans').value || 0
+    trans: +$('trans').value || 0 
   };
 }
 
 function renderKeyframes() {
-  const el = $('kfList'); 
-  el.innerHTML = '';
+  const el = $('kfList'); el.innerHTML = '';
   S.keyframes.forEach((k, i) => {
-    const b = document.createElement('div');
-    b.className = 'kf' + (i === S.sel ? ' sel' : '');
-    b.innerHTML = '';
+    const b = document.createElement('div'); b.className = 'kf' + (i === S.sel ? ' sel' : '');
     b.textContent = (i + 1) + (k.caption ? ' · ' + k.caption : '');
-    const s = document.createElement('small'); 
-    s.textContent = k.hold + 's'; 
-    b.appendChild(s);
-    b.addEventListener('click', () => selectKeyframe(i));
-    el.appendChild(b);
+    const s = document.createElement('small'); s.textContent = k.hold + 's'; b.appendChild(s);
+    b.addEventListener('click', () => selectKeyframe(i)); el.appendChild(b);
   });
-  if (!S.keyframes.length) el.textContent = 'Sin fotogramas — Crea el mapa y presiona "+ Fotograma".';
+  if (!S.keyframes.length) el.textContent = 'Sin fotogramas — Colorea el mapa y presiona "+ Fotograma".';
 }
 
 function selectKeyframe(i) {
   const k = S.keyframes[i]; if (!k) return;
-  S.sel = i;
+  S.sel = i; 
   S.owners = k.owners.slice(); 
+  S.groups = k.groups ? k.groups.slice() : new Int32Array(S.n+1).map((_,idx)=>idx);
+  S.locked = k.locked ? k.locked.slice() : new Uint8Array(S.n+1);
   S.countries = k.countries.map(c => ({ ...c }));
-  S.pctx.clearRect(0, 0, S.w, S.h); 
-  S.pctx.drawImage(k.paint, 0, 0);
-  S.caption = k.caption; 
-  $('caption').value = k.caption;
-  $('hold').value = k.hold; 
-  $('trans').value = k.trans;
-  if (!S.countries.some(c => c.id === S.active)) {
-    S.active = S.countries.length ? S.countries[0].id : 0;
-  }
-  S.undo = []; S.redo = [];
-  renderCountries(); 
-  renderKeyframes(); 
-  redraw();
+  S.items = cloneItems(k.items || []);
+  S.caption = k.caption; $('caption').value = k.caption; 
+  $('hold').value = k.hold; $('trans').value = k.trans;
+  S.undo = []; S.redo = []; renderCountries(); renderKeyframes(); redraw();
 }
 
-$('kfAdd').onclick = () => {
-  const at = S.sel >= 0 ? S.sel + 1 : S.keyframes.length;
-  S.keyframes.splice(at, 0, makeKeyframe()); 
-  S.sel = at; 
-  renderKeyframes();
-};
-$('kfUpdate').onclick = () => {   if (S.sel < 0) return setStatus('Selecciona un fotograma primero.');   S.keyframes[S.sel] = makeKeyframe();    renderKeyframes();    setStatus('Fotograma actualizado'); };$('kfDel').onclick = () => {
-  if (S.sel < 0) return;
-  S.keyframes.splice(S.sel, 1); 
-  S.sel = Math.min(S.sel, S.keyframes.length - 1); 
-  renderKeyframes();
-};
+$('kfAdd').onclick = () => { const at = S.sel >= 0 ? S.sel + 1 : S.keyframes.length; S.keyframes.splice(at, 0, makeKeyframe()); S.sel = at; renderKeyframes(); };
+$('kfUpdate').onclick = () => { if (S.sel < 0) return; S.keyframes[S.sel] = makeKeyframe(); renderKeyframes(); updateStats('Fotograma actualizado'); };$('kfDel').onclick = () => { if (S.sel < 0) return; S.keyframes.splice(S.sel, 1); S.sel = Math.min(S.sel, S.keyframes.length - 1); renderKeyframes(); };
+
 function moveKf(d) {
   const i = S.sel, j = i + d;
   if (i < 0 || j < 0 || j >= S.keyframes.length) return;
-  [S.keyframes[i], S.keyframes[j]] = [S.keyframes[j], S.keyframes[i]]; 
-  S.sel = j; 
-  renderKeyframes();
+  [S.keyframes[i], S.keyframes[j]] = [S.keyframes[j], S.keyframes[i]]; S.sel = j; renderKeyframes();
 }
 $('kfLeft').onclick = () => moveKf(-1);$('kfRight').onclick = () => moveKf(1);
 $('hold').addEventListener('change', () => { if (S.sel >= 0) { S.keyframes[S.sel].hold = +$('hold').value || 0; renderKeyframes(); } });
@@ -843,33 +1040,23 @@ $('trans').addEventListener('change', () => { if (S.sel >= 0) S.keyframes[S.sel]
 $('caption').addEventListener('input', () => { S.caption =$('caption').value; recompose(); });
 for (const id of ['capSize', 'capPos', 'mode', 'opacity']) $(id).addEventListener('input', recompose);
 
-// ==========================================
-// 10. REPRODUCCIÓN Y GRABACIÓN DE VIDEO
-// ==========================================
 function pickMime() {
   if (!window.MediaRecorder) return null;
   return ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm', 'video/mp4'].find(m => MediaRecorder.isTypeSupported(m)) || null;
 }
 
 function download(blob, name) {
-  const a = document.createElement('a'); 
-  a.href = URL.createObjectURL(blob); 
-  a.download = name;
-  document.body.appendChild(a); 
-  a.click(); 
-  a.remove();
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 }
 
 function play(record) {
   if (S.playing) return;
   const kfs = S.keyframes;
-  if (!kfs.length) return setStatus('Agrega al menos un fotograma primero.');
+  if (!kfs.length) return updateStats('Agrega al menos un fotograma primero.');
   let mime = null;
-  if (record) { 
-    mime = pickMime(); 
-    if (!mime) return setStatus('Este navegador no puede grabar video (intenta con Chrome o Edge).'); 
-  }
+  if (record) { mime = pickMime(); if (!mime) return updateStats('Navegador no compatible con grabación.'); }
 
   const tables = kfs.map(k => colorTable(k.owners, k.countries));
   const scratch = new Uint32Array(S.n + 1);
@@ -884,11 +1071,12 @@ function play(record) {
   const draw = (seg, el) => {
     if (!seg.tr) {
       renderOverlay(tables[seg.a]);
-      compose([[kfs[seg.a].paint, 1]], kfs[seg.a].caption);
+      compose(kfs[seg.a].items, kfs[seg.a].caption);
     } else {
       const p = clamp((el - seg.s) / seg.d, 0, 1), e = p * p * (3 - 2 * p);
       renderOverlay(lerpTable(tables[seg.a], tables[seg.b], e, scratch));
-      compose([[kfs[seg.a].paint, 1 - e], [kfs[seg.b].paint, e]], p < 0.5 ? kfs[seg.a].caption : kfs[seg.b].caption);
+      const activeK = p < 0.5 ? kfs[seg.a] : kfs[seg.b];
+      compose(activeK.items, activeK.caption);
     }
   };
 
@@ -900,12 +1088,12 @@ function play(record) {
     rec.start();
   }
   S.playing = true;
-  setStatus(record ? 'Grabando…' : 'Reproduciendo…');
+  updateStats(record ? 'Grabando…' : 'Reproduciendo…');
   const t0 = performance.now();
   
   const finish = () => {
     S.playing = false;
-    const done = () => { redraw(); setStatus(record ? 'Video guardado en descargas.' : ''); };
+    const done = () => { redraw(record ? 'Video guardado en descargas.' : ''); };
     if (rec) setTimeout(() => { if (rec.state !== 'inactive') rec.stop(); done(); }, 350); else done();
   };
   
@@ -921,22 +1109,39 @@ function play(record) {
   requestAnimationFrame(step);
 }
 
-$('playBtn').onclick = () => play(false);
-$('recBtn').onclick = () => play(true);$('stopBtn').onclick = () => { S.playing = false; };
+$('playBtn').onclick = () => play(false);$('recBtn').onclick = () => play(true);
+$('stopBtn').onclick = () => { S.playing = false; };$('exportPng').onclick = () => cv.toBlob(b => download(b, 'map-frame.png'));
 
-// ==========================================
-// 11. GUARDAR Y CARGAR PROYECTOS
-// ==========================================
-$('exportPng').onclick = () => cv.toBlob(b => download(b, 'map-frame.png'));
+function serializeItems(items) {
+  return items.map(it => {
+    const copy = { ...it };
+    delete copy.img;
+    return copy;
+  });
+}
+
+async function deserializeItems(rawItems) {
+  if (!rawItems) return [];
+  const out = [];
+  for (const it of rawItems) {
+    if (it.type === 'image' && it.src) {
+      const img = await loadImg(it.src);
+      out.push({ ...it, img });
+    } else {
+      out.push({ ...it });
+    }
+  }
+  return out;
+}
 
 $('savePrj').onclick = () => {
   const data = {
-    v: 1, w: S.w, h: S.h, n: S.n, thr: +$('thr').value, nextId: S.nextId,
-    countries: S.countries, owners: Array.from(S.owners), caption: S.caption,
-    paint: S.paint.toDataURL(),
+    v: 3, w: S.w, h: S.h, n: S.n, thr: +$('thr').value, nextId: S.nextId,
+    countries: S.countries, owners: Array.from(S.owners), groups: Array.from(S.groups), locked: Array.from(S.locked),
+    items: serializeItems(S.items), caption: S.caption,
     keyframes: S.keyframes.map(k => ({
-      countries: k.countries, owners: Array.from(k.owners), paint: k.paint.toDataURL(),
-      caption: k.caption, hold: k.hold, trans: k.trans
+      countries: k.countries, owners: Array.from(k.owners), groups: Array.from(k.groups), locked: Array.from(k.locked || []),
+      items: serializeItems(k.items || []), caption: k.caption, hold: k.hold, trans: k.trans
     }))
   };
   download(new Blob([JSON.stringify(data)], { type: 'application/json' }), 'map-project.json');
@@ -948,118 +1153,75 @@ $('loadPrj').addEventListener('change', async e => {
   const f = e.target.files[0]; if (!f) return;
   try {
     const d = JSON.parse(await f.text());
-    if (d.w !== S.w || d.h !== S.h || d.n !== S.n) {
-      setStatus('El proyecto no coincide con el mapa cargado. Carga primero la misma imagen (con el umbral ' + d.thr + ').');
-      return;
-    }
-    S.nextId = Math.max(S.nextId, d.nextId);
-    S.countries = d.countries; S.owners = Int32Array.from(d.owners);
-    S.caption = d.caption || ''; $('caption').value = S.caption;
-    S.pctx.clearRect(0, 0, S.w, S.h); 
-    S.pctx.drawImage(await loadImg(d.paint), 0, 0);
+    if (d.w !== S.w || d.n !== S.n) return updateStats('Carga primero el mapa correspondiente (Umbral ' + d.thr + ').');
+    S.nextId = Math.max(S.nextId, d.nextId || 1);
+    S.owners = Int32Array.from(d.owners); 
+    S.groups = d.groups ? Int32Array.from(d.groups) : new Int32Array(S.n + 1).map((_,i)=>i);
+    S.locked = d.locked ? Uint8Array.from(d.locked) : new Uint8Array(S.n + 1);
+    S.countries = d.countries; S.caption = d.caption || ''; $('caption').value = S.caption;
+    S.items = await deserializeItems(d.items);
     S.keyframes = [];
-    
     for (const k of d.keyframes) {
-      const pc = mkCanvas(); pc.width = S.w; pc.height = S.h;
-      pc.getContext('2d').drawImage(await loadImg(k.paint), 0, 0);
-      S.keyframes.push({ countries: k.countries, owners: Int32Array.from(k.owners), paint: pc, caption: k.caption, hold: k.hold, trans: k.trans });
+      S.keyframes.push({
+        countries: k.countries,
+        owners: Int32Array.from(k.owners),
+        groups: k.groups ? Int32Array.from(k.groups) : new Int32Array(S.n + 1).map((_,i)=>i),
+        locked: k.locked ? Uint8Array.from(k.locked) : new Uint8Array(S.n + 1),
+        items: await deserializeItems(k.items),
+        caption: k.caption, hold: k.hold, trans: k.trans
+      });
     }
-    S.sel = -1; S.undo = []; S.redo = [];
-    S.active = S.countries.length ? S.countries[0].id : 0;
-    renderCountries(); renderKeyframes(); redraw(); setStatus('Proyecto cargado');
-  } catch (err) { 
-    setStatus('No se pudo cargar el proyecto: ' + err.message); 
+    S.sel = -1; renderCountries(); renderKeyframes(); redraw('Proyecto cargado');
+  } catch (err) {
+    updateStats('Error al cargar proyecto: ' + err.message);
   }
   e.target.value = '';
 });
 
 // ==========================================
-// 12. EVENTOS DE UI (BOTONES, MENÚS)
+// 12. EVENTOS DE UI Y ATAJOS
 // ==========================================
-$('mapFile').addEventListener('change', e => {
-  const f = e.target.files[0]; if (!f) return;
-  const img = new Image();
-  img.onload = () => { 
-    setMap(img); 
-    resetCountries(); 
-    renderCountries(); 
-    URL.revokeObjectURL(img.src); 
-  };
-  img.src = URL.createObjectURL(f);
-  e.target.value = '';
-});
-
-$('demoBtn').onclick = () => { demoMap(); resetCountries(); renderCountries(); };
-
-$('thr').addEventListener('input', () => { $('thrVal').textContent =$('thr').value; });
-
-$('redetect').onclick = () => {
+$('mapFile').addEventListener('change', e => { const f = e.target.files[0]; if (!f) return; const img = new Image(); img.onload = () => { setMap(img); resetCountries(); renderCountries(); }; img.src = URL.createObjectURL(f); e.target.value = ''; });$('demoBtn').onclick = () => loadDefaultBalkanMap();
+$('thr').addEventListener('input', () => {$('thrVal').textContent = $('thr').value; });$('redetect').onclick = () => { 
   if (!S.base) return;
-  if (!confirm('Re-detectar las provincias borrará a los dueños, pintura y fotogramas. ¿Continuar?')) return;
-  S.pctx.clearRect(0, 0, S.w, S.h);
-  const keep = S.countries.map(c => ({ ...c })), act = S.active;
-  setMap(S.base);
-  S.countries = keep; S.active = act; 
-  renderCountries(); 
-  redraw();
+  if (confirm('Re-detectar provincias reiniciará las asignaciones actuales. ¿Continuar?')) { 
+    const keep = S.countries, act = S.active; 
+    setMap(S.base); S.countries = keep; S.active = act; 
+    renderCountries(); redraw(); 
+  } 
 };
 
-$('addCountry').onclick = () => { 
-  const c = addCountry(); 
-  renderCountries(); 
-  setActive(c.id); 
-};
-
-$('warApply').onclick = () => {
+$('addCountry').onclick = () => { const c = addCountry(); renderCountries(); setActive(c.id); };$('warApply').onclick = () => {
   const a = S.countries.find(c => c.id === +$('warA').value);
   const b = S.countries.find(c => c.id === +$('warB').value);
-  if (!a || !b || a === b) return setStatus('Elige dos países diferentes.');
-  pushUndo(false); 
-  a.color = '#d62728'; // Rojo para atacante
-  b.color = '#1f77b4'; // Azul para defensor
-  renderCountries(); 
-  redraw();
+  if (!a || !b || a === b) return updateStats('Elige dos países diferentes.');
+  pushUndo(); a.color = '#d62728'; b.color = '#1f77b4'; renderCountries(); redraw();
 };
-$('warSwap').onclick = () => {
-  const A = $('warA'), B =$('warB'), t = A.value; 
-  A.value = B.value; B.value = t;
-};
-
-$('undoBtn').onclick = undo;
+$('warSwap').onclick = () => { const A =$('warA'), B = $('warB'), t = A.value; A.value = B.value; B.value = t; };$('undoBtn').onclick = undo;
 $('redoBtn').onclick = redo;
 
 document.querySelectorAll('#tools button').forEach(b => b.addEventListener('click', () => setTool(b.dataset.tool)));
-
-function setTool(t) {
-  S.tool = t;
-  document.querySelectorAll('#tools button').forEach(b => b.classList.toggle('on', b.dataset.tool === t));
-  view.style.cursor = t === 'pan' ? 'grab' : 'crosshair';
+function setTool(t) { 
+  S.tool = t; 
+  document.querySelectorAll('#tools button').forEach(b => b.classList.toggle('on', b.dataset.tool === t)); 
+  view.style.cursor = t === 'pan' ? 'grab' : (t === 'moveItem' ? 'move' : 'crosshair'); 
 }
 
 window.addEventListener('keydown', e => {
-  if (/INPUT|TEXTAREA|SELECT/.test(e.target.tagName) && e.target.type !== 'range' && e.target.type !== 'checkbox') return;
+  if (/INPUT|TEXTAREA|SELECT/.test(e.target.tagName) && e.target.type !== 'range') return;
   if (e.ctrlKey || e.metaKey) {
-    if (e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
-    else if (e.key === 'y' || (e.key === 'z' && e.shiftKey)) { e.preventDefault(); redo(); }
+    if (e.key.toLowerCase() === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
+    else if (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey)) { e.preventDefault(); redo(); }
     return;
   }
   if (e.code === 'Space') { S.space = true; e.preventDefault(); return; }
-  const map = { f: 'fill', u: 'unown', p: 'pick', b: 'brush', e: 'eraser' };
-  if (map[e.key]) setTool(map[e.key]);
-  else if (/^[0-9]$/.test(e.key)) {
-    const i = +e.key;
-    if (i === 0) setActive(0); else if (S.countries[i - 1]) setActive(S.countries[i - 1].id);
-  }
+  const map = { f: 'fill', u: 'unown', g: 'group', h: 'ungroup', s: 'split', p: 'pick', t: 'text', i: 'image', v: 'moveItem' };
+  if (map[e.key.toLowerCase()]) setTool(map[e.key.toLowerCase()]);
 });
 window.addEventListener('keyup', e => { if (e.code === 'Space') S.space = false; });
 
-// ==========================================
-// INICIAR APLICACIÓN
-// ==========================================
-initCountryDatabase(); // Inicia nuestro nuevo selector de continentes/países
-resetCountries();
-demoMap();
-renderCountries();
-renderKeyframes();
+// Inicializar todo y cargar el mapa de los Balcanes
+initCountryDatabase();
+loadDefaultBalkanMap();
 
 })();
