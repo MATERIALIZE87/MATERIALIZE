@@ -18,12 +18,12 @@
       <label>Umbral de líneas <span id="thrVal">135</span>
         <input type="range" id="thr" min="20" max="230" value="135"></label>
       <button id="redetect">Re-detectar provincias</button>
-      <label>Estilo del Mapa
+      <label>Estilo
         <select id="mode">
-          <option value="relief">Con Relieve (Tinte suave)</option>
-          <option value="flat">Plano Simple (Sin relieve)</option>
+          <option value="relief">Relieve Táctico (ve blancos y sombras)</option>
+          <option value="flat">Colores planos + líneas encima</option>
         </select></label>
-      <label>Opacidad del color <input type="range" id="opacity" min="10" max="100" value="100"></label>
+      <label>Opacidad del color <input type="range" id="opacity" min="10" max="100" value="85"></label>
     </section>
 
     <section>
@@ -41,6 +41,7 @@
         <button data-tool="pan" title="Espacio o Rueda = Mover">Mover Mapa</button>
       </div>
       
+      <!-- Controles para Textos e Imágenes en el mapa -->
       <div id="itemControls" style="margin-top:8px; padding-top:6px; border-top:1px dashed #2c3038;">
         <label>Texto / Etiqueta: <input type="text" id="mapTextInput" placeholder="Ej. Belgrado"></label>
         <div class="row">
@@ -76,7 +77,6 @@
         <button id="warApply">Rojo vs Azul</button>
         <button id="warSwap">Invertir</button>
       </div>
-      <button id="warRestore">↺ Restaurar colores originales</button>
     </section>
 
     <section>
@@ -94,6 +94,7 @@
   <main>
     <div id="view">
       <div id="stage"><canvas id="main"></canvas></div>
+      <!-- Menú Contextual Clic Derecho -->
       <div id="ctxMenu" class="ctx-menu" hidden></div>
     </div>
     <div id="timeline">
