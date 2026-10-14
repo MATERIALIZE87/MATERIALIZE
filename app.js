@@ -160,9 +160,9 @@ const S = {
   countries: [], nextId: 1, active: 1,
   overlay: mkCanvas(), octx: null, ovData: null,
   lines: mkCanvas(),
-  items: [],
-  groupAnchor: 0,
-  lasso: null,
+  items: [], // Textos e imágenes colocados en el mapa
+  groupAnchor: 0, // Provincia base actual para agrupar
+  lasso: null, // Puntos del lazo
   pendingImgPos: null,
   tool: 'fill', zoom: 1, panX: 0, panY: 0,
   keyframes: [], sel: -1, undo: [], redo: [],
@@ -226,7 +226,7 @@ function initCountryDatabase() {
 }
 
 // ==========================================
-// 4. CARGA Y DETECCIÓN INTELIGENTE (Con soporte para Lagos)
+// 4. CARGA Y DETECCIÓN DEL MAPA
 // ==========================================
 function loadDefaultBalkanMap() {
   const img = new Image();
@@ -286,29 +286,15 @@ function detectProvinces(preserveLines = false) {
     
     for (let i = 0; i < N; i++) {
       const o = i * 4;
-      const r = img[o], g = img[o + 1], b = img[o + 2], a = img[o + 3] / 255;
-      const lum = (0.299 * r + 0.587 * g + 0.114 * b) * a + 255 * (1 - a);
+      const a = img[o + 3] / 255;
+      const lum = (0.299 * img[o] + 0.587 * img[o + 1] + 0.114 * img[o + 2]) * a + 255 * (1 - a);
       
-      // 1. Detectar si el píxel es agua azul (como el lago de Hungría o de los Balcanes)
-      // Si el canal azul supera claramente al rojo, NO es línea de frontera, es un lago rellenable.
-      const isWaterLake = (b > r + 25) && (b > 95);
+      if (lum < thr) isLine[i] = 1;
       
-      // 2. Diferenciar fronteras oscuras de las sombras cálidas de las montañas
-      // Las sombras del relieve tienen un tono tierra/marrón más cálido (r > b + 20) y no son tan oscuras como el trazo negro.
-      const isMountainShadow = (lum > 92) && (r > b + 22);
-
-      if (!isWaterLake && !isMountainShadow && lum < thr) {
-        isLine[i] = 1;
-      }
-      
-      // Construir la capa de líneas limpias para el modo "Plano Simple"
       let al = 0;
-      if (isLine[i]) {
-        al = 255;
-      } else if (!isWaterLake && !isMountainShadow && lum < thr + 18) {
-        al = Math.round(255 * (1 - (lum - thr) / 18));
-      }
-      ld[o] = 28; ld[o + 1] = 28; ld[o + 2] = 28; ld[o + 3] = al;
+      if (lum < thr) al = 255;
+      else if (lum < thr + 50) al = 255 * (1 - (lum - thr) / 50);
+      ld[o] = 20; ld[o + 1] = 20; ld[o + 2] = 20; ld[o + 3] = al;
     }
     S.lines.getContext('2d').putImageData(lineImg, 0, 0);
   } else {
@@ -399,30 +385,20 @@ function demoMap() {
 }
 
 // ==========================================
-// 5. GESTIÓN DE PAÍSES Y MEMORIA DE COLORES
+// 5. GESTIÓN DE PAÍSES
 // ==========================================
 function addCountry(name, color) {
-  const chosenColor = color || PALETTE[(S.nextId - 2) % PALETTE.length];
-  const c = { 
-    id: S.nextId++, 
-    name: name || ('País ' + S.nextId), 
-    color: chosenColor,
-    origColor: chosenColor // Guarda el color original para poder restaurarlo tras una Guerra Rápida
-  };
-  S.countries.push(c); 
-  return c;
+  const c = { id: S.nextId++, name: name || ('País ' + S.nextId), color: color || PALETTE[(S.nextId - 2) % PALETTE.length] };
+  S.countries.push(c); return c;
 }
 
 function resetCountries() {
   S.countries = [];
-  // Incluye la herramienta de color de Mar/Lago lista para usar
-  addCountry('🌊 Mar / Lago', '#0e79b2');
   addCountry('Serbia', '#646aab');
   addCountry('Croatia', '#845392');
   addCountry('Bosnia', '#4727ab');
-  addCountry('Hungary', '#d79665');
   addCountry('Austria', '#DCDBDB');
-  S.active = S.countries[1].id;
+  S.active = S.countries[0].id;
 }
 
 function renderCountries() {
@@ -433,11 +409,7 @@ function renderCountries() {
     const row = document.createElement('div'); row.className = 'crow'; row.dataset.id = c.id;
     if (c.color) {
       const col = document.createElement('input'); col.type = 'color'; col.value = c.color;
-      col.addEventListener('input', () => { 
-        c.color = col.value; 
-        c.origColor = col.value; // Si el usuario cambia el color a mano, actualiza su color original
-        redraw(); 
-      });
+      col.addEventListener('input', () => { c.color = col.value; redraw(); });
       row.appendChild(col);
     } else {
       const sp = document.createElement('span'); sp.className = 'nosw'; row.appendChild(sp);
@@ -478,16 +450,8 @@ function updateWarSelects() {
   if ($('warA').value === $('warB').value && S.countries.length > 1) { $('warB').selectedIndex = 1; }
 }
 
-function getOriginalColor(country) {
-  if (country.origColor) return country.origColor;
-  for (const cont in countryDatabase) {
-    if (countryDatabase[cont][country.name]) return countryDatabase[cont][country.name].hex;
-  }
-  return country.color;
-}
-
 // ==========================================
-// 6. MOTOR DE RENDERIZADO (2 Modos: Con Relieve vs Plano Simple)
+// 6. MOTOR DE RENDERIZADO (Soporta Blanco + Textos + Imágenes)
 // ==========================================
 function colorTable(owners, countries) {
   const t = new Uint32Array(S.n + 1);
@@ -561,35 +525,23 @@ function compose(items, caption) {
   const opacity = +$('opacity').value / 100;
   ctx.globalCompositeOperation = 'source-over'; 
   ctx.globalAlpha = 1;
+  ctx.drawImage(S.base, 0, 0);
   
   if ($('mode').value === 'relief') {
-    // MODO 1: CON RELIEVE (Tinte suave sin manchas oscuras + soporte para colores blancos)
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, S.w, S.h);
-    ctx.globalAlpha = opacity;
+    // Permite que el blanco (#DCDBDB / #FFFFFF) ilumine el terreno beige mientras conserva el relieve
+    ctx.globalCompositeOperation = 'hard-light';
+    ctx.globalAlpha = opacity * 0.78;
     ctx.drawImage(S.overlay, 0, 0);
     
-    // Multiplicar con la imagen base para que aparezcan las montañas suavemente
-    ctx.globalAlpha = 1;
-    ctx.globalCompositeOperation = 'multiply';
-    ctx.drawImage(S.base, 0, 0);
-    
-    // Pequeño refuerzo de color encima para que países blancos (como Austria) se vean blancos y no beige
     ctx.globalCompositeOperation = 'source-over';
-    ctx.globalAlpha = opacity * 0.28;
+    ctx.globalAlpha = opacity * 0.35;
     ctx.drawImage(S.overlay, 0, 0);
     
-    // Líneas de frontera nítidas
-    ctx.globalAlpha = 0.65;
+    ctx.globalAlpha = 0.85;
     ctx.drawImage(S.lines, 0, 0);
   } else {
-    // MODO 2: PLANO SIMPLE (Oculta el relieve de las montañas por completo y deja colores 100% planos)
-    ctx.fillStyle = '#d8c8b0'; // Color tierra neutro plano para provincias sin dueño
-    ctx.fillRect(0, 0, S.w, S.h);
-    
     ctx.globalAlpha = opacity;
     ctx.drawImage(S.overlay, 0, 0);
-    
     ctx.globalAlpha = 1;
     ctx.drawImage(S.lines, 0, 0);
   }
@@ -599,6 +551,7 @@ function compose(items, caption) {
   drawItems(items);
   drawCaption(caption);
 
+  // Dibujar lazo de selección si está activo
   if (S.lasso && S.lasso.length > 1) {
     ctx.save();
     ctx.beginPath();
@@ -711,6 +664,7 @@ function assignRegion(r, id) {
 
 function assign(p, id) { assignRegion(regionAt(p), id); }
 
+// Algoritmo Point-in-Polygon para el lazo
 function pointInPoly(x, y, poly) {
   let inside = false;
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
@@ -746,6 +700,7 @@ function applyLassoGroup(poly) {
   redraw(`🔗 ${insideRegions.length} provincias agrupadas con éxito.`);
 }
 
+// Búsqueda de Textos o Imágenes en una coordenada
 function itemAt(p) {
   for (let i = S.items.length - 1; i >= 0; i--) {
     const it = S.items[i];
@@ -883,10 +838,6 @@ view.addEventListener('contextmenu', e => {
       if (actCountry) {
         addItem(`🏳️ Asignar a ${actCountry.name}`, () => { pushUndo(); assignRegion(r, S.active); });
       }
-      const seaCountry = S.countries.find(c => c.name.includes('Mar') || c.color === '#0e79b2');
-      if (seaCountry) {
-        addItem('🌊 Pintar como Mar / Lago', () => { pushUndo(); assignRegion(r, seaCountry.id); });
-      }
       addItem('🏳️ Desasignar (Sin Dueño)', () => { pushUndo(); assignRegion(r, 0); });
       addSep();
       addItem('🔗 Fijar como base de grupo', () => { S.groupAnchor = r; updateStats(`Provincia #${r} fijada como base de grupo.`); });
@@ -923,7 +874,7 @@ view.addEventListener('contextmenu', e => {
   }
 
   ctxMenu.hidden = false;
-  const mw = 230, mh = ctxMenu.offsetHeight || 260;
+  const mw = 220, mh = ctxMenu.offsetHeight || 240;
   ctxMenu.style.left = Math.min(e.clientX, window.innerWidth - mw - 10) + 'px';
   ctxMenu.style.top = Math.min(e.clientY, window.innerHeight - mh - 10) + 'px';
 });
@@ -933,7 +884,7 @@ view.addEventListener('contextmenu', e => {
 // ==========================================
 view.addEventListener('pointerdown', e => {
   if (S.playing || !S.labels) return;
-  if (e.button === 2) return;
+  if (e.button === 2) return; // Clic derecho reservado para el menú contextual
   hideCtxMenu();
   view.setPointerCapture(e.pointerId);
   
@@ -1005,6 +956,7 @@ const endDrag = e => {
     if (d.isLasso && S.lasso.length > 2) {
       applyLassoGroup(S.lasso);
     } else {
+      // Agrupación por clic directo
       const r = regionAt(d.startP);
       if (r && !S.locked[r]) {
         if (!S.groupAnchor || !S.groups[S.groupAnchor]) {
@@ -1227,7 +1179,7 @@ $('loadPrj').addEventListener('change', async e => {
 });
 
 // ==========================================
-// 12. EVENTOS DE UI, GUERRA RÁPIDA Y ATAJOS
+// 12. EVENTOS DE UI Y ATAJOS
 // ==========================================
 $('mapFile').addEventListener('change', e => { const f = e.target.files[0]; if (!f) return; const img = new Image(); img.onload = () => { setMap(img); resetCountries(); renderCountries(); }; img.src = URL.createObjectURL(f); e.target.value = ''; });$('demoBtn').onclick = () => loadDefaultBalkanMap();
 $('thr').addEventListener('input', () => {$('thrVal').textContent = $('thr').value; });$('redetect').onclick = () => { 
@@ -1239,40 +1191,13 @@ $('thr').addEventListener('input', () => {$('thrVal').textContent = $('thr').val
   } 
 };
 
-$('addCountry').onclick = () => { const c = addCountry(); renderCountries(); setActive(c.id); };
-
-// Aplicar Rojo vs Azul guardando antes el color original
-$('warApply').onclick = () => {
+$('addCountry').onclick = () => { const c = addCountry(); renderCountries(); setActive(c.id); };$('warApply').onclick = () => {
   const a = S.countries.find(c => c.id === +$('warA').value);
   const b = S.countries.find(c => c.id === +$('warB').value);
   if (!a || !b || a === b) return updateStats('Elige dos países diferentes.');
-  pushUndo();
-  if (a.color !== '#d62728' && a.color !== '#1f77b4') a.origColor = a.color;
-  if (b.color !== '#d62728' && b.color !== '#1f77b4') b.origColor = b.color;
-  a.color = '#d62728'; 
-  b.color = '#1f77b4'; 
-  renderCountries(); 
-  redraw('⚔️ Colores de guerra aplicados');
+  pushUndo(); a.color = '#d62728'; b.color = '#1f77b4'; renderCountries(); redraw();
 };
-
-$('warSwap').onclick = () => { 
-  const A = $('warA'), B =$('warB'), t = A.value; 
-  A.value = B.value; B.value = t; 
-};
-
-// Restaurar los colores originales de los dos países seleccionados en Guerra Rápida
-$('warRestore').onclick = () => {
-  const a = S.countries.find(c => c.id === +$('warA').value);
-  const b = S.countries.find(c => c.id === +$('warB').value);
-  if (!a && !b) return;
-  pushUndo();
-  if (a) a.color = getOriginalColor(a);
-  if (b) b.color = getOriginalColor(b);
-  renderCountries();
-  redraw('↺ Colores originales restaurados');
-};
-
-$('undoBtn').onclick = undo;
+$('warSwap').onclick = () => { const A =$('warA'), B = $('warB'), t = A.value; A.value = B.value; B.value = t; };$('undoBtn').onclick = undo;
 $('redoBtn').onclick = redo;
 
 document.querySelectorAll('#tools button').forEach(b => b.addEventListener('click', () => setTool(b.dataset.tool)));
@@ -1295,6 +1220,7 @@ window.addEventListener('keydown', e => {
 });
 window.addEventListener('keyup', e => { if (e.code === 'Space') S.space = false; });
 
+// Inicializar todo y cargar el mapa de los Balcanes
 initCountryDatabase();
 loadDefaultBalkanMap();
 
