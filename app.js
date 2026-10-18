@@ -1,27 +1,29 @@
 (() => {
 'use strict';
 
+// ============================================================================
+// MÓDULO 1: UTILIDADES Y CONSTANTES
+// ============================================================================
 const $ = id => document.getElementById(id);
-const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-const hex2rgb = h => { 
-  const n = parseInt(h.slice(1), 16); 
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; 
+const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+const mkCanvas = (w = 1, h = 1) => {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  return c;
 };
-const mkCanvas = () => document.createElement('canvas');
+const hex2rgb = hex => {
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+};
 
-const view = $('view');
-const stage = $('stage');
-const cv = $('main');
-const ctx = cv.getContext('2d');
-const ctxMenu = $('ctxMenu');
+const MAX_WIDTH = 2400;
+const DEFAULT_MAP_FILE = 'balkan image_2.jpg';
+const DEFAULT_PALETTE = ['#c0392b', '#2e86c1', '#27ae60', '#f1c40f', '#8e44ad', '#e67e22', '#16a085', '#7f8c8d'];
 
-const MAXW = 2400;
-const DEFAULT_MAP_PATH = 'balkan image_2.jpg';
-
-// ==========================================
-// 1. BASE DE DATOS DE PAÍSES (Ordenada)
-// ==========================================
-const countryDatabase = {
+// ============================================================================
+// MÓDULO 2: BASE DE DATOS DE PAÍSES (Estilo HOI4 - Ordenada Alfabéticamente)
+// ============================================================================
+const COUNTRY_DB = {
   "Europa": {
     "Albania": { hex: "#86190d", colorName: "Grubby Red" },
     "Austria": { hex: "#DCDBDB", colorName: "White" },
@@ -152,566 +154,499 @@ const countryDatabase = {
   }
 };
 
-const PALETTE = ['#c0392b', '#2e86c1', '#27ae60', '#f1c40f', '#8e44ad', '#e67e22', '#16a085', '#7f8c8d'];
+// ============================================================================
+// MÓDULO 3: ESTADO GLOBAL DE LA APLICACIÓN
+// ============================================================================
+const view = $('view');
+const stage = $('stage');
+const cv = $('mainCanvas');
+const ctx = cv.getContext('2d');
+const ctxMenu = $('ctxMenu');
 
-const S = {
-  w: 0, h: 0, base: null, labels: null, n: 0, 
-  owners: null, groups: null, locked: null, centroids: null,
-  countries: [], nextId: 1, active: 1,
-  overlay: mkCanvas(), octx: null, ovData: null,
-  lines: mkCanvas(),
-  items: [],
-  groupAnchor: 0,
-  lasso: null,
-  pendingImgPos: null,
-  tool: 'fill', zoom: 1, panX: 0, panY: 0,
-  keyframes: [], sel: -1, undo: [], redo: [],
-  caption: '', playing: false, drag: null, space: false
+const State = {
+  w: 0,
+  h: 0,
+  baseCanvas: mkCanvas(),       // Imagen original del mapa
+  overlayCanvas: mkCanvas(),    // Colores sólidos de las provincias
+  overlayCtx: null,
+  overlayImgData: null,
+  linesCanvas: mkCanvas(),      // Fronteras extraídas para dibujarse encima
+  customBorders: null,          // Uint8Array(w*h): Fronteras dibujadas por el usuario
+  
+  n: 0,                         // Total de provincias detectadas
+  labels: null,                 // Int32Array(w*h): ID de provincia para cada píxel
+  owners: null,                 // Int32Array(n+1): ID del país dueño de cada provincia
+  groups: null,                 // Int32Array(n+1): ID de grupo (0 = sin agrupar, >0 = agrupada)
+  nextGroupId: 1,               // Contador de grupos creados por el usuario
+  locked: null,                 // Uint8Array(n+1): 1 si la provincia está bloqueada
+  centroids: null,              // Array de coordenadas {x, y} por provincia
+  
+  countries: [],                // Lista de países activos: {id, name, color, origColor}
+  nextCountryId: 1,
+  activeCountryId: 1,
+  groupAnchor: 0,               // Provincia base seleccionada para agrupar por clic
+  
+  items: [],                    // Textos e imágenes sobre el mapa
+  nextItemId: 1,
+  pendingImagePos: null,
+  
+  tool: 'fill',
+  zoom: 1,
+  panX: 0,
+  panY: 0,
+  spacePressed: false,
+  drag: null,                   // Estado de arrastre activo
+  lassoPoints: null,            // Puntos del polígono de lazo
+  splitPoints: null,            // Puntos del trazo de nueva frontera
+  
+  keyframes: [],
+  selectedKf: -1,
+  caption: '',
+  playing: false,
+  
+  undoStack: [],
+  redoStack: []
 };
 
-// ==========================================
-// 2. ESTADÍSTICAS Y ESTADO
-// ==========================================
-function updateStats(msg) {
-  if (!S.owners || !S.n) {
-    $('status').textContent = msg || '';
+// ============================================================================
+// MÓDULO 4: CONTADOR DE ESTADÍSTICAS Y BARRA DE ESTADO
+// ============================================================================
+function updateStatus(customMsg = '') {
+  if (!State.owners || !State.n) {
+    $('status').textContent = customMsg;
     return;
   }
-  let colored = 0;
-  for (let i = 1; i <= S.n; i++) {
-    if (S.owners[i] > 0) colored++;
+  let coloredCount = 0;
+  for (let i = 1; i <= State.n; i++) {
+    if (State.owners[i] > 0) coloredCount++;
   }
-  const baseText = `${S.n} provincias detectadas | ${colored} provincias coloreadas`;
-  $('status').textContent = msg ? `${msg} — (${baseText})` : baseText;
+  const stats = `${State.n} provincias detectadas | ${coloredCount} provincias coloreadas`;
+  $('status').textContent = customMsg ? `${customMsg} — (${stats})` : stats;
 }
 
-// ==========================================
-// 3. BASE DE DATOS DE PAÍSES UI
-// ==========================================
-function initCountryDatabase() {
-  const continentSel = $('continentSelect');
-  const countrySel = $('countrySelect');
+// ============================================================================
+// MÓDULO 5: MOTOR DE DETECCIÓN Y DIVISIÓN DE PROVINCIAS
+// ============================================================================
+function initMapFromImage(imgElement) {
+  let w = imgElement.width || imgElement.naturalWidth;
+  let h = imgElement.height || imgElement.naturalHeight;
+  const scale = Math.min(1, MAX_WIDTH / w);
+  w = Math.round(w * scale);
+  h = Math.round(h * scale);
 
-  for (const continent in countryDatabase) {
-    const opt = document.createElement('option');
-    opt.value = continent; opt.textContent = continent;
-    continentSel.appendChild(opt);
+  State.w = w;
+  State.h = h;
+
+  for (const c of [State.baseCanvas, State.overlayCanvas, State.linesCanvas, cv]) {
+    c.width = w;
+    c.height = h;
   }
 
-  continentSel.addEventListener('change', () => {
-    countrySel.innerHTML = '';
-    const countries = countryDatabase[continentSel.value];
-    for (const countryName in countries) {
-      const opt = document.createElement('option');
-      opt.value = countryName;
-      opt.textContent = `${countryName} (${countries[countryName].colorName})`; 
-      countrySel.appendChild(opt);
-    }
-  });
+  State.baseCanvas.getContext('2d').drawImage(imgElement, 0, 0, w, h);
+  State.overlayCtx = State.overlayCanvas.getContext('2d');
+  State.overlayImgData = State.overlayCtx.createImageData(w, h);
+  State.customBorders = new Uint8Array(w * h);
 
-  continentSel.dispatchEvent(new Event('change'));
+  stage.style.width = w + 'px';
+  stage.style.height = h + 'px';
 
-  $('addDbCountryBtn').addEventListener('click', () => {
-    const continent = continentSel.value;
-    const countryName = countrySel.value;
-    const countryData = countryDatabase[continent][countryName];
-    const existing = S.countries.find(c => c.name === countryName);
-    if (existing) {
-      setActive(existing.id);
-      return;
-    }
-    const newCountry = addCountry(countryName, countryData.hex);
-    renderCountries(); setActive(newCountry.id);
-  });
+  runProvinceDetection();
+
+  State.owners = new Int32Array(State.n + 1);
+  State.groups = new Int32Array(State.n + 1); // 0 = provincia independiente
+  State.locked = new Uint8Array(State.n + 1);
+  State.nextGroupId = 1;
+  State.groupAnchor = 0;
+  State.items = [];
+  State.keyframes = [];
+  State.selectedKf = -1;
+  State.undoStack = [];
+  State.redoStack = [];
+
+  renderKeyframesUI();
+  fitMapToViewport();
+  renderScene();
 }
 
-// ==========================================
-// 4. CARGA Y DETECCIÓN INTELIGENTE (Con soporte para Lagos)
-// ==========================================
-function loadDefaultBalkanMap() {
-  const img = new Image();
-  img.onload = () => {
-    setMap(img);
-    resetCountries();
-    renderCountries();
-  };
-  img.onerror = () => {
-    demoMap();
-    resetCountries();
-    renderCountries();
-    updateStats('No se encontró "' + DEFAULT_MAP_PATH + '" en la carpeta, se cargó mapa demo.');
-  };
-  img.src = encodeURI(DEFAULT_MAP_PATH);
-}
-
-function setMap(src) {
-  let w = src.width || src.naturalWidth;
-  let h = src.height || src.naturalHeight;
-  const sc = Math.min(1, MAXW / w);
-  w = Math.round(w * sc); h = Math.round(h * sc);
-  
-  S.w = w; S.h = h;
-  S.base = mkCanvas(); S.base.width = w; S.base.height = h;
-  S.base.getContext('2d').drawImage(src, 0, 0, w, h);
-  
-  for (const c of [S.overlay, S.lines, cv]) { c.width = w; c.height = h; }
-  
-  S.octx = S.overlay.getContext('2d');
-  S.ovData = S.octx.createImageData(w, h);
-  stage.style.width = w + 'px'; stage.style.height = h + 'px';
-  
-  detectProvinces();
-  
-  S.owners = new Int32Array(S.n + 1);
-  S.groups = new Int32Array(S.n + 1);
-  S.locked = new Uint8Array(S.n + 1);
-  for(let i = 1; i <= S.n; i++) S.groups[i] = i;
-  
-  S.items = [];
-  S.keyframes = []; S.sel = -1; S.undo = []; S.redo = [];
-  
-  renderKeyframes(); fitView(); redraw();
-}
-
-function detectProvinces(preserveLines = false) {
-  const { w, h } = S;
+function runProvinceDetection() {
+  const { w, h, customBorders } = State;
   const N = w * h;
+  const thr = +$('thr').value;
+  const baseData = State.baseCanvas.getContext('2d').getImageData(0, 0, w, h).data;
+  const lineImgData = State.linesCanvas.getContext('2d').createImageData(w, h);
+  const ld = lineImgData.data;
   const isLine = new Uint8Array(N);
-  
-  if (!preserveLines) {
-    const thr = +$('thr').value;
-    const img = S.base.getContext('2d').getImageData(0, 0, w, h).data;
-    const lineImg = S.lines.getContext('2d').createImageData(w, h);
-    const ld = lineImg.data;
-    
-    for (let i = 0; i < N; i++) {
-      const o = i * 4;
-      const r = img[o], g = img[o + 1], b = img[o + 2], a = img[o + 3] / 255;
-      const lum = (0.299 * r + 0.587 * g + 0.114 * b) * a + 255 * (1 - a);
-      
-      // 1. Detectar si el píxel es agua azul (como el lago de Hungría o de los Balcanes)
-      // Si el canal azul supera claramente al rojo, NO es línea de frontera, es un lago rellenable.
-      const isWaterLake = (b > r + 25) && (b > 95);
-      
-      // 2. Diferenciar fronteras oscuras de las sombras cálidas de las montañas
-      // Las sombras del relieve tienen un tono tierra/marrón más cálido (r > b + 20) y no son tan oscuras como el trazo negro.
-      const isMountainShadow = (lum > 92) && (r > b + 22);
 
-      if (!isWaterLake && !isMountainShadow && lum < thr) {
-        isLine[i] = 1;
-      }
-      
-      // Construir la capa de líneas limpias para el modo "Plano Simple"
-      let al = 0;
-      if (isLine[i]) {
-        al = 255;
-      } else if (!isWaterLake && !isMountainShadow && lum < thr + 18) {
-        al = Math.round(255 * (1 - (lum - thr) / 18));
-      }
-      ld[o] = 28; ld[o + 1] = 28; ld[o + 2] = 28; ld[o + 3] = al;
+  // 1. Detectar píxeles de frontera por umbral + fronteras dibujadas por el usuario
+  for (let i = 0; i < N; i++) {
+    const o = i * 4;
+    const alpha = baseData[o + 3] / 255;
+    const lum = (0.299 * baseData[o] + 0.587 * baseData[o + 1] + 0.114 * baseData[o + 2]) * alpha + 255 * (1 - alpha);
+
+    if (customBorders[i] || lum < thr) {
+      isLine[i] = 1;
     }
-    S.lines.getContext('2d').putImageData(lineImg, 0, 0);
-  } else {
-    const ld = S.lines.getContext('2d').getImageData(0,0,w,h).data;
-    for (let i = 0; i < N; i++) {
-      if (ld[i*4+3] > 128) isLine[i] = 1; 
+
+    let lineAlpha = 0;
+    if (customBorders[i] || lum < thr) {
+      lineAlpha = 255;
+    } else if (lum < thr + 45) {
+      lineAlpha = Math.round(255 * (1 - (lum - thr) / 45));
     }
+    ld[o] = 22;
+    ld[o + 1] = 22;
+    ld[o + 2] = 22;
+    ld[o + 3] = lineAlpha;
   }
+  State.linesCanvas.getContext('2d').putImageData(lineImgData, 0, 0);
 
+  // 2. Flood-Fill de 4 direcciones para etiquetar cada provincia cerrada
   let labels = new Int32Array(N);
   const stack = new Int32Array(N);
-  let n = 0;
-  
+  let provinceCount = 0;
+
   for (let i = 0; i < N; i++) {
     if (isLine[i] || labels[i]) continue;
-    n++; labels[i] = n;
-    let sp = 0; stack[sp++] = i;
-    
-    while (sp) {
-      const p = stack[--sp], x = p % w;
-      if (x > 0 && !isLine[p - 1] && !labels[p - 1]) { labels[p - 1] = n; stack[sp++] = p - 1; }
-      if (x < w - 1 && !isLine[p + 1] && !labels[p + 1]) { labels[p + 1] = n; stack[sp++] = p + 1; }
-      if (p >= w && !isLine[p - w] && !labels[p - w]) { labels[p - w] = n; stack[sp++] = p - w; }
-      if (p < N - w && !isLine[p + w] && !labels[p + w]) { labels[p + w] = n; stack[sp++] = p + w; }
+    provinceCount++;
+    labels[i] = provinceCount;
+    let sp = 0;
+    stack[sp++] = i;
+
+    while (sp > 0) {
+      const p = stack[--sp];
+      const x = p % w;
+      if (x > 0 && !isLine[p - 1] && !labels[p - 1]) { labels[p - 1] = provinceCount; stack[sp++] = p - 1; }
+      if (x < w - 1 && !isLine[p + 1] && !labels[p + 1]) { labels[p + 1] = provinceCount; stack[sp++] = p + 1; }
+      if (p >= w && !isLine[p - w] && !labels[p - w]) { labels[p - w] = provinceCount; stack[sp++] = p - w; }
+      if (p < N - w && !isLine[p + w] && !labels[p + w]) { labels[p + w] = provinceCount; stack[sp++] = p + w; }
     }
   }
-  
+
+  // 3. Dilatación suave de etiquetas bajo los bordes para evitar halos sin pintar
   for (let pass = 0; pass < 5; pass++) {
     const next = labels.slice();
     for (let i = 0; i < N; i++) {
       if (labels[i]) continue;
-      const x = i % w; let l = 0;
-      if (x > 0) l = labels[i - 1];
-      if (!l && x < w - 1) l = labels[i + 1];
-      if (!l && i >= w) l = labels[i - w];
-      if (!l && i < N - w) l = labels[i + w];
-      if (l) next[i] = l;
+      const x = i % w;
+      let neighborLabel = 0;
+      if (x > 0) neighborLabel = labels[i - 1];
+      if (!neighborLabel && x < w - 1) neighborLabel = labels[i + 1];
+      if (!neighborLabel && i >= w) neighborLabel = labels[i - w];
+      if (!neighborLabel && i < N - w) neighborLabel = labels[i + w];
+      if (neighborLabel) next[i] = neighborLabel;
     }
     labels = next;
   }
-  S.labels = labels; S.n = n;
-  computeCentroids();
+
+  State.labels = labels;
+  State.n = provinceCount;
+  computeProvinceCentroids();
 }
 
-function computeCentroids() {
-  const { w, h, n, labels } = S;
-  const sx = new Float64Array(n + 1);
-  const sy = new Float64Array(n + 1);
-  const cnt = new Int32Array(n + 1);
+function computeProvinceCentroids() {
+  const { w, h, n, labels } = State;
+  const sumX = new Float64Array(n + 1);
+  const sumY = new Float64Array(n + 1);
+  const count = new Int32Array(n + 1);
+
   for (let y = 0; y < h; y++) {
     const row = y * w;
     for (let x = 0; x < w; x++) {
       const r = labels[row + x];
-      if (r) { sx[r] += x; sy[r] += y; cnt[r]++; }
+      if (r) {
+        sumX[r] += x;
+        sumY[r] += y;
+        count[r]++;
+      }
     }
   }
-  S.centroids = new Array(n + 1);
+
+  State.centroids = new Array(n + 1);
   for (let i = 1; i <= n; i++) {
-    S.centroids[i] = cnt[i] ? { x: sx[i] / cnt[i], y: sy[i] / cnt[i] } : { x: -1, y: -1 };
+    State.centroids[i] = count[i]
+      ? { x: sumX[i] / count[i], y: sumY[i] / count[i] }
+      : { x: -1, y: -1 };
   }
 }
 
-function demoMap() {
-  const w = 1200, h = 700, seeds = 70;
-  const sx = [], sy = [];
-  for (let i = 0; i < seeds; i++) { sx.push(Math.random() * w); sy.push(Math.random() * h); }
-  const cell = new Uint16Array(w * h);
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-    let best = 0, bd = 1e12;
-    for (let k = 0; k < seeds; k++) {
-      const dx = x - sx[k], dy = y - sy[k], d = dx * dx + dy * dy;
-      if (d < bd) { bd = d; best = k; }
-    }
-    cell[y * w + x] = best;
+// Graba un trazo de frontera en customBorders y recalcula las provincias conservando dueños
+function commitSplitBorder(points) {
+  if (!points || points.length < 2) return;
+  pushUndoState();
+
+  const { w, h } = State;
+  const tempCanvas = mkCanvas(w, h);
+  const tctx = tempCanvas.getContext('2d');
+  tctx.strokeStyle = '#ffffff';
+  tctx.lineWidth = 3.5; // Grosor sólido que garantiza cierre sin fugas de 1px
+  tctx.lineCap = 'round';
+  tctx.lineJoin = 'round';
+  tctx.beginPath();
+  tctx.moveTo(points[0].fx, points[0].fy);
+  for (let i = 1; i < points.length; i++) {
+    tctx.lineTo(points[i].fx, points[i].fy);
   }
-  const c = mkCanvas(); c.width = w; c.height = h;
-  const cx = c.getContext('2d');
-  const id = cx.createImageData(w, h); const d = id.data;
-  for (let i = 0; i < w * h; i++) { d[i * 4] = 222; d[i * 4 + 1] = 205; d[i * 4 + 2] = 181; d[i * 4 + 3] = 255; }
-  const dark = i => { d[i * 4] = 40; d[i * 4 + 1] = 40; d[i * 4 + 2] = 40; };
-  for (let y = 0; y < h - 1; y++) for (let x = 0; x < w - 1; x++) {
-    const i = y * w + x;
-    if (cell[i] !== cell[i + 1]) { dark(i); dark(i + 1); }
-    if (cell[i] !== cell[i + w]) { dark(i); dark(i + w); }
-  }
-  cx.putImageData(id, 0, 0);
-  setMap(c);
-}
+  tctx.stroke();
 
-// ==========================================
-// 5. GESTIÓN DE PAÍSES Y MEMORIA DE COLORES
-// ==========================================
-function addCountry(name, color) {
-  const chosenColor = color || PALETTE[(S.nextId - 2) % PALETTE.length];
-  const c = { 
-    id: S.nextId++, 
-    name: name || ('País ' + S.nextId), 
-    color: chosenColor,
-    origColor: chosenColor // Guarda el color original para poder restaurarlo tras una Guerra Rápida
-  };
-  S.countries.push(c); 
-  return c;
-}
-
-function resetCountries() {
-  S.countries = [];
-  // Incluye la herramienta de color de Mar/Lago lista para usar
-  addCountry('🌊 Mar / Lago', '#0e79b2');
-  addCountry('Serbia', '#646aab');
-  addCountry('Croatia', '#845392');
-  addCountry('Bosnia', '#4727ab');
-  addCountry('Hungary', '#d79665');
-  addCountry('Austria', '#DCDBDB');
-  S.active = S.countries[1].id;
-}
-
-function renderCountries() {
-  const el = $('countries'); el.innerHTML = '';
-  const rows = [{ id: 0, name: 'Sin Dueño', color: null }, ...S.countries];
-  
-  rows.forEach((c, idx) => {
-    const row = document.createElement('div'); row.className = 'crow'; row.dataset.id = c.id;
-    if (c.color) {
-      const col = document.createElement('input'); col.type = 'color'; col.value = c.color;
-      col.addEventListener('input', () => { 
-        c.color = col.value; 
-        c.origColor = col.value; // Si el usuario cambia el color a mano, actualiza su color original
-        redraw(); 
-      });
-      row.appendChild(col);
-    } else {
-      const sp = document.createElement('span'); sp.className = 'nosw'; row.appendChild(sp);
-    }
-    
-    const nm = document.createElement('input'); nm.type = 'text'; nm.className = 'nm'; nm.value = c.name;
-    if (!c.color) nm.disabled = true;
-    nm.addEventListener('input', () => { c.name = nm.value; updateWarSelects(); });
-    row.appendChild(nm);
-    
-    if (c.color) {
-      const x = document.createElement('button'); x.className = 'x'; x.textContent = '×'; x.title = 'Eliminar país';
-      x.addEventListener('click', ev => { ev.stopPropagation(); deleteCountry(c.id); });
-      row.appendChild(x);
-    }
-    const k = document.createElement('span'); k.className = 'key'; k.textContent = idx < 10 ? idx : '';
-    row.appendChild(k); row.addEventListener('click', () => setActive(c.id)); el.appendChild(row);
-  });
-  markActive(); updateWarSelects();
-}
-
-function markActive() { document.querySelectorAll('.crow').forEach(r => { r.classList.toggle('active', +r.dataset.id === S.active); }); }
-function setActive(id) { S.active = id; markActive(); }
-function deleteCountry(id) { 
-  pushUndo(); 
-  for (let i = 1; i <= S.n; i++) { if (S.owners[i] === id && !S.locked[i]) S.owners[i] = 0; } 
-  S.countries = S.countries.filter(c => c.id !== id); 
-  if (S.active === id) S.active = S.countries.length ? S.countries[0].id : 0; 
-  renderCountries(); redraw(); 
-}
-
-function updateWarSelects() {
-  for (const id of ['warA', 'warB']) {
-    const sel = $(id); const prev = +sel.value; sel.innerHTML = '';
-    S.countries.forEach(c => { const o = document.createElement('option'); o.value = c.id; o.textContent = c.name; sel.appendChild(o); });
-    if (S.countries.some(c => c.id === prev)) sel.value = prev;
-  }
-  if ($('warA').value === $('warB').value && S.countries.length > 1) { $('warB').selectedIndex = 1; }
-}
-
-function getOriginalColor(country) {
-  if (country.origColor) return country.origColor;
-  for (const cont in countryDatabase) {
-    if (countryDatabase[cont][country.name]) return countryDatabase[cont][country.name].hex;
-  }
-  return country.color;
-}
-
-// ==========================================
-// 6. MOTOR DE RENDERIZADO (2 Modos: Con Relieve vs Plano Simple)
-// ==========================================
-function colorTable(owners, countries) {
-  const t = new Uint32Array(S.n + 1);
-  const m = new Map(countries.map(c => [c.id, hex2rgb(c.color)]));
-  for (let i = 1; i <= S.n; i++) {
-    const c = m.get(owners[i]);
-    t[i] = c ? (((255 << 24) | (c[2] << 16) | (c[1] << 8) | c[0]) >>> 0) : 0;
-  }
-  return t;
-}
-
-function lerpTable(A, B, e, out) {
-  for (let i = 0; i < A.length; i++) {
-    const a = A[i], b = B[i];
-    if (a === b) { out[i] = a; continue; }
-    const aa = a >>> 24, ba = b >>> 24; let r, g, bl;
-    if (!aa) { r = b & 255; g = (b >> 8) & 255; bl = (b >> 16) & 255; }
-    else if (!ba) { r = a & 255; g = (a >> 8) & 255; bl = (a >> 16) & 255; }
-    else {
-      r = (a & 255) + ((b & 255) - (a & 255)) * e;
-      g = ((a >> 8) & 255) + (((b >> 8) & 255) - ((a >> 8) & 255)) * e;
-      bl = ((a >> 16) & 255) + (((b >> 16) & 255) - ((a >> 16) & 255)) * e;
-    }
-    const al = Math.round(aa + (ba - aa) * e);
-    out[i] = ((al << 24) | ((bl | 0) << 16) | ((g | 0) << 8) | (r | 0)) >>> 0;
-  }
-  return out;
-}
-
-function renderOverlay(table) {
-  const u = new Uint32Array(S.ovData.data.buffer);
-  const L = S.labels;
-  for (let i = 0; i < L.length; i++) u[i] = table[L[i]];
-  S.octx.putImageData(S.ovData, 0, 0);
-}
-
-function drawItems(items) {
-  if (!items) return;
-  for (const it of items) {
-    if (it.type === 'text') {
-      const sz = it.size || 22;
-      ctx.font = `bold ${sz}px system-ui, sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.lineJoin = 'round';
-      ctx.lineWidth = Math.max(2, sz / 6);
-      ctx.strokeStyle = 'rgba(0,0,0,0.85)';
-      ctx.strokeText(it.text, it.x, it.y);
-      ctx.fillStyle = it.color || '#ffffff';
-      ctx.fillText(it.text, it.x, it.y);
-    } else if (it.type === 'image' && it.img) {
-      ctx.drawImage(it.img, it.x - it.w / 2, it.y - it.h / 2, it.w, it.h);
+  const maskData = tctx.getImageData(0, 0, w, h).data;
+  for (let i = 0; i < w * h; i++) {
+    if (maskData[i * 4 + 3] > 60) {
+      State.customBorders[i] = 1;
     }
   }
+
+  const oldLabels = State.labels;
+  const oldOwners = State.owners;
+  const oldGroups = State.groups;
+  const oldLocked = State.locked;
+
+  runProvinceDetection();
+
+  // Mapear cada nueva provincia a su provincia madre original
+  const newOwners = new Int32Array(State.n + 1);
+  const newGroups = new Int32Array(State.n + 1);
+  const newLocked = new Uint8Array(State.n + 1);
+  const parentOfNew = new Int32Array(State.n + 1);
+  const childrenCountOfOld = new Int32Array(oldOwners.length);
+
+  for (let i = 0; i < w * h; i++) {
+    const nL = State.labels[i];
+    if (nL && !parentOfNew[nL] && oldLabels[i]) {
+      parentOfNew[nL] = oldLabels[i];
+    }
+  }
+
+  for (let i = 1; i <= State.n; i++) {
+    const oldId = parentOfNew[i];
+    if (oldId) childrenCountOfOld[oldId]++;
+  }
+
+  for (let i = 1; i <= State.n; i++) {
+    const oldId = parentOfNew[i];
+    if (oldId) {
+      newOwners[i] = oldOwners[oldId];
+      newLocked[i] = oldLocked[oldId];
+      // Si la provincia fue partida en 2 o más pedazos, desagrupar los pedazos para que sean independientes
+      if (childrenCountOfOld[oldId] > 1) {
+        newGroups[i] = 0;
+      } else {
+        newGroups[i] = oldGroups[oldId];
+      }
+    }
+  }
+
+  State.owners = newOwners;
+  State.groups = newGroups;
+  State.locked = newLocked;
+  renderScene('✂️ Nueva frontera aplicada y provincias divididas');
 }
 
-function drawCaption(text) {
-  if (!text) return;
-  const size = +$('capSize').value || 56;
-  ctx.font = 'bold ' + size + 'px system-ui, sans-serif';
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'alphabetic';
-  const x = size * 0.6;
-  const y = $('capPos').value === 'top' ? size * 1.3 : S.h - size * 0.6;
-  ctx.lineJoin = 'round'; ctx.lineWidth = size / 5;
-  ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.strokeText(text, x, y);
-  ctx.fillStyle = '#111'; ctx.fillText(text, x, y);
+// ============================================================================
+// MÓDULO 6: MOTOR DE RENDERIZADO (Sin Tintes, Soporte Blanco Puro)
+// ============================================================================
+function buildColorLookupTable(owners, countries) {
+  const table = new Uint32Array(State.n + 1);
+  const rgbMap = new Map(countries.map(c => [c.id, hex2rgb(c.color)]));
+  for (let i = 1; i <= State.n; i++) {
+    const rgb = rgbMap.get(owners[i]);
+    if (rgb) {
+      table[i] = ((255 << 24) | (rgb[2] << 16) | (rgb[1] << 8) | rgb[0]) >>> 0;
+    }
+  }
+  return table;
 }
 
-function compose(items, caption) {
+function paintOverlayBuffer(colorTable) {
+  const buf32 = new Uint32Array(State.overlayImgData.data.buffer);
+  const labels = State.labels;
+  for (let i = 0; i < labels.length; i++) {
+    buf32[i] = colorTable[labels[i]];
+  }
+  State.overlayCtx.putImageData(State.overlayImgData, 0, 0);
+}
+
+function composeCanvasFrame(items, captionText) {
+  const { w, h } = State;
   const opacity = +$('opacity').value / 100;
-  ctx.globalCompositeOperation = 'source-over'; 
-  ctx.globalAlpha = 1;
-  
-  if ($('mode').value === 'relief') {
-    // MODO 1: CON RELIEVE (Tinte suave sin manchas oscuras + soporte para colores blancos)
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, S.w, S.h);
-    ctx.globalAlpha = opacity;
-    ctx.drawImage(S.overlay, 0, 0);
-    
-    // Multiplicar con la imagen base para que aparezcan las montañas suavemente
-    ctx.globalAlpha = 1;
-    ctx.globalCompositeOperation = 'multiply';
-    ctx.drawImage(S.base, 0, 0);
-    
-    // Pequeño refuerzo de color encima para que países blancos (como Austria) se vean blancos y no beige
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.globalAlpha = opacity * 0.28;
-    ctx.drawImage(S.overlay, 0, 0);
-    
-    // Líneas de frontera nítidas
-    ctx.globalAlpha = 0.65;
-    ctx.drawImage(S.lines, 0, 0);
-  } else {
-    // MODO 2: PLANO SIMPLE (Oculta el relieve de las montañas por completo y deja colores 100% planos)
-    ctx.fillStyle = '#d8c8b0'; // Color tierra neutro plano para provincias sin dueño
-    ctx.fillRect(0, 0, S.w, S.h);
-    
-    ctx.globalAlpha = opacity;
-    ctx.drawImage(S.overlay, 0, 0);
-    
-    ctx.globalAlpha = 1;
-    ctx.drawImage(S.lines, 0, 0);
-  }
-  
+
   ctx.globalCompositeOperation = 'source-over';
   ctx.globalAlpha = 1;
-  drawItems(items);
-  drawCaption(caption);
 
-  if (S.lasso && S.lasso.length > 1) {
+  // 1. Imagen del mapa base
+  ctx.drawImage(State.baseCanvas, 0, 0);
+
+  // 2. Colores de provincias directos (el blanco se ve blanco, sin tintes)
+  ctx.globalAlpha = opacity;
+  ctx.drawImage(State.overlayCanvas, 0, 0);
+
+  // 3. Líneas de frontera encima para máxima nitidez
+  ctx.globalAlpha = 1;
+  ctx.drawImage(State.linesCanvas, 0, 0);
+
+  // 4. Elementos del mapa (Textos e Imágenes)
+  if (items && items.length) {
+    for (const it of items) {
+      if (it.type === 'text') {
+        const sz = it.size || 22;
+        ctx.font = `bold ${sz}px system-ui, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.lineJoin = 'round';
+        ctx.lineWidth = Math.max(2.5, sz / 5.5);
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.85)';
+        ctx.strokeText(it.text, it.x, it.y);
+        ctx.fillStyle = it.color || '#ffffff';
+        ctx.fillText(it.text, it.x, it.y);
+      } else if (it.type === 'image' && it.img) {
+        ctx.drawImage(it.img, it.x - it.w / 2, it.y - it.h / 2, it.w, it.h);
+      }
+    }
+  }
+
+  // 5. Título / Fecha de la línea de tiempo
+  if (captionText) {
+    const capSize = +$('capSizeInput').value || 56;
+    ctx.font = `bold ${capSize}px      system-ui, sans-serif`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    const x = capSize * 0.6;
+    const y = $('capPosSelect').value === 'top' ? capSize * 1.3 : h - capSize * 0.6;
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = capSize / 5;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.92)';
+    ctx.strokeText(captionText, x, y);
+    ctx.fillStyle = '#111111';
+    ctx.fillText(captionText, x, y);
+  }
+
+  // 6. Previsualización de Lazo de Agrupación
+  if (State.lassoPoints && State.lassoPoints.length > 1) {
     ctx.save();
     ctx.beginPath();
-    ctx.moveTo(S.lasso[0].fx, S.lasso[0].fy);
-    for (let i = 1; i < S.lasso.length; i++) ctx.lineTo(S.lasso[i].fx, S.lasso[i].fy);
+    ctx.moveTo(State.lassoPoints[0].fx, State.lassoPoints[0].fy);
+    for (let i = 1; i < State.lassoPoints.length; i++) {
+      ctx.lineTo(State.lassoPoints[i].fx, State.lassoPoints[i].fy);
+    }
     ctx.closePath();
     ctx.fillStyle = 'rgba(241, 196, 15, 0.22)';
     ctx.fill();
-    ctx.lineWidth = 2 / S.zoom;
+    ctx.lineWidth = 2 / State.zoom;
     ctx.strokeStyle = '#f1c40f';
-    ctx.setLineDash([6 / S.zoom, 4 / S.zoom]);
+    ctx.setLineDash([6 / State.zoom, 4 / State.zoom]);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // 7. Previsualización de Nueva Frontera en vivo
+  if (State.splitPoints && State.splitPoints.length > 1) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(State.splitPoints[0].fx, State.splitPoints[0].fy);
+    for (let i = 1; i < State.splitPoints.length; i++) {
+      ctx.lineTo(State.splitPoints[i].fx, State.splitPoints[i].fy);
+    }
+    ctx.lineWidth = 3.5;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = '#141414';
     ctx.stroke();
     ctx.restore();
   }
 }
 
-function redraw(msg) { 
-  if (!S.labels || S.playing) return; 
-  renderOverlay(colorTable(S.owners, S.countries)); 
-  compose(S.items, S.caption); 
-  updateStats(msg);
-}
-function recompose() { 
-  if (S.labels && !S.playing) compose(S.items, S.caption); 
+function renderScene(statusMsg = '') {
+  if (!State.labels || State.playing) return;
+  paintOverlayBuffer(buildColorLookupTable(State.owners, State.countries));
+  composeCanvasFrame(State.items, State.caption);
+  updateStatus(statusMsg);
 }
 
-// ==========================================
-// 7. DESHACER / REHACER
-// ==========================================
-function cloneItems(items) {
-  return items.map(it => ({ ...it }));
-}
-function snap() {
-  return {
-    owners: S.owners.slice(), 
-    groups: S.groups.slice(),
-    locked: S.locked.slice(),
-    countries: S.countries.map(c => ({ ...c })),
-    items: cloneItems(S.items)
-  };
-}
-function pushUndo() { S.undo.push(snap()); if (S.undo.length > 25) S.undo.shift(); S.redo.length = 0; }
-function restore(e) {
-  S.owners = e.owners.slice(); 
-  S.groups = e.groups.slice(); 
-  S.locked = e.locked.slice();
-  S.countries = e.countries.map(c => ({ ...c }));
-  S.items = cloneItems(e.items);
-  renderCountries(); redraw();
-}
-function undo() { const e = S.undo.pop(); if (!e) return; S.redo.push(snap()); restore(e); }
-function redo() { const e = S.redo.pop(); if (!e) return; S.undo.push(snap()); restore(e); }
-
-// ==========================================
-// 8. INTERACCIÓN, LAZO, ELEMENTOS Y MENÚ CLIC DERECHO
-// ==========================================
-function applyView() { stage.style.transform = `translate(${S.panX}px,${S.panY}px) scale(${S.zoom})`; }
-function fitView() {
-  const vw = view.clientWidth, vh = view.clientHeight;
-  S.zoom = Math.min(vw / S.w, vh / S.h) * 0.98;
-  S.panX = (vw - S.w * S.zoom) / 2; S.panY = (vh - S.h * S.zoom) / 2; applyView();
-}
-
-view.addEventListener('wheel', e => {
-  e.preventDefault(); hideCtxMenu();
-  const r = view.getBoundingClientRect();
-  const mx = e.clientX - r.left, my = e.clientY - r.top;
-  const nz = clamp(S.zoom * (e.deltaY < 0 ? 1.15 : 1 / 1.15), 0.05, 20);
-  S.panX = mx - (mx - S.panX) * (nz / S.zoom); S.panY = my - (my - S.panY) * (nz / S.zoom);
-  S.zoom = nz; applyView();
-}, { passive: false });
-window.addEventListener('resize', () => { if (S.labels) fitView(); });
-
-function toMap(e) {
-  const r = cv.getBoundingClientRect();
-  const fx = (e.clientX - r.left) / r.width * S.w; const fy = (e.clientY - r.top) / r.height * S.h;
-  return { fx, fy, x: clamp(Math.floor(fx), 0, S.w - 1), y: clamp(Math.floor(fy), 0, S.h - 1) };
-}
-
-const regionAt = p => S.labels[p.y * S.w + p.x];
-
-function isGroupLocked(targetGroup) {
-  for (let i = 1; i <= S.n; i++) {
-    if (S.groups[i] === targetGroup && S.locked[i]) return true;
-  }
-  return false;
-}
-
-function setGroupLock(targetGroup, lockVal) {
-  for (let i = 1; i <= S.n; i++) {
-    if (S.groups[i] === targetGroup) S.locked[i] = lockVal ? 1 : 0;
+function recomposeOnly() {
+  if (State.labels && !State.playing) {
+    composeCanvasFrame(State.items, State.caption);
   }
 }
 
-function assignRegion(r, id) {
-  if (!r) return;
-  const targetGroup = S.groups[r];
-  if (isGroupLocked(targetGroup)) {
-    updateStats('🔒 Esta provincia está bloqueada.');
-    return;
+// ============================================================================
+// MÓDULO 7: GESTIÓN DE PROVINCIAS, GRUPOS Y BLOQUEOS
+// ============================================================================
+function getProvinceMembers(provId) {
+  if (!provId) return [];
+  const gid = State.groups[provId];
+  if (!gid) return [provId];
+  const members = [];
+  for (let i = 1; i <= State.n; i++) {
+    if (State.groups[i] === gid) members.push(i);
   }
+  return members;
+}
+
+function isProvinceLocked(provId) {
+  const members = getProvinceMembers(provId);
+  return members.some(m => State.locked[m] === 1);
+}
+
+function setProvinceLock(provId, lockFlag) {
+  const members = getProvinceMembers(provId);
+  for (const m of members) {
+    State.locked[m] = lockFlag ? 1 : 0;
+  }
+}
+
+function assignProvinceOwner(provId, countryId) {
+  if (!provId) return false;
+  if (isProvinceLocked(provId)) {
+    updateStatus(`🔒 La provincia #${provId} está bloqueada.`);
+    return false;
+  }
+  const members = getProvinceMembers(provId);
   let changed = false;
-  for (let i = 1; i <= S.n; i++) {
-    if (S.groups[i] === targetGroup && !S.locked[i]) {
-      if (S.owners[i] !== id) { S.owners[i] = id; changed = true; }
+  for (const m of members) {
+    if (!State.locked[m] && State.owners[m] !== countryId) {
+      State.owners[m] = countryId;
+      changed = true;
     }
   }
-  if (changed) redraw();
+  if (changed) renderScene();
+  return changed;
 }
 
-function assign(p, id) { assignRegion(regionAt(p), id); }
+function mergeProvincesIntoGroup(provList, anchorProvId = 0) {
+  const unlockedProvs = provList.filter(r => r > 0 && !State.locked[r]);
+  if (!unlockedProvs.length) {
+    updateStatus('Ninguna provincia desbloqueada seleccionada para agrupar.');
+    return;
+  }
 
-function pointInPoly(x, y, poly) {
+  pushUndoState();
+  const baseProv = (anchorProvId && !State.locked[anchorProvId]) ? anchorProvId : unlockedProvs[0];
+  let targetGroupId = State.groups[baseProv];
+  if (!targetGroupId) {
+    targetGroupId = State.nextGroupId++;
+    State.groups[baseProv] = targetGroupId;
+  }
+  const targetOwner = State.owners[baseProv];
+
+  // Recolectar todos los grupos existentes de las provincias seleccionadas
+  const existingGroups = new Set();
+  for (const r of unlockedProvs) {
+    if (State.groups[r] > 0) existingGroups.add(State.groups[r]);
+    State.groups[r] = targetGroupId;
+    State.owners[r] = targetOwner;
+  }
+
+  for (let i = 1; i <= State.n; i++) {
+    if (existingGroups.has(State.groups[i]) && !State.locked[i]) {
+      State.groups[i] = targetGroupId;
+      State.owners[i] = targetOwner;
+    }
+  }
+
+  State.groupAnchor = baseProv;
+  renderScene(`🔗 ${unlockedProvs.length} provincias agrupadas.`);
+}
+
+function pointInPolygon(x, y, poly) {
   let inside = false;
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
     const xi = poly[i].fx, yi = poly[i].fy;
@@ -722,445 +657,898 @@ function pointInPoly(x, y, poly) {
   return inside;
 }
 
-function applyLassoGroup(poly) {
-  const insideRegions = [];
-  for (let i = 1; i <= S.n; i++) {
-    const c = S.centroids[i];
-    if (c && c.x >= 0 && pointInPoly(c.x, c.y, poly)) insideRegions.push(i);
-  }
-  if (!insideRegions.length) return updateStats('Ninguna provincia dentro del lazo.');
-  
-  pushUndo();
-  const baseR = (S.groupAnchor && S.groups[S.groupAnchor]) ? S.groupAnchor : insideRegions[0];
-  const targetG = S.groups[baseR];
-  const owner = S.owners[baseR];
-  S.groupAnchor = baseR;
+function findProvincesInLasso(poly) {
+  const found = new Set();
+  const { w, h, labels, centroids, n } = State;
 
-  const groupsToMerge = new Set(insideRegions.map(r => S.groups[r]));
-  for (let i = 1; i <= S.n; i++) {
-    if (groupsToMerge.has(S.groups[i]) && !S.locked[i]) {
-      S.groups[i] = targetG;
-      S.owners[i] = owner;
+  // 1. Verificar centroides
+  for (let i = 1; i <= n; i++) {
+    const c = centroids[i];
+    if (c && c.x >= 0 && pointInPolygon(c.x, c.y, poly)) {
+      found.add(i);
     }
   }
-  redraw(`🔗 ${insideRegions.length} provincias agrupadas con éxito.`);
+
+  // 2. Muestreo cada 3px dentro de la caja delimitadora para capturar islas pequeñas
+  let minX = w, minY = h, maxX = 0, maxY = 0;
+  for (const p of poly) {
+    if (p.x < minX) minX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y > maxY) maxY = p.y;
+  }
+  minX = clamp(minX, 0, w - 1); minY = clamp(minY, 0, h - 1);
+  maxX = clamp(maxX, 0, w - 1); maxY = clamp(maxY, 0, h - 1);
+
+  for (let y = minY; y <= maxY; y += 3) {
+    const row = y * w;
+    for (let x = minX; x <= maxX; x += 3) {
+      const r = labels[row + x];
+      if (r && !found.has(r) && pointInPolygon(x, y, poly)) {
+        found.add(r);
+      }
+    }
+  }
+  return Array.from(found);
 }
 
-function itemAt(p) {
-  for (let i = S.items.length - 1; i >= 0; i--) {
-    const it = S.items[i];
+// ============================================================================
+// MÓDULO 8: TEXTOS E IMÁGENES EN EL MAPA
+// ============================================================================
+function cloneItemsList(items) {
+  return items.map(it => ({ ...it }));
+}
+
+function findItemAtPoint(p) {
+  for (let i = State.items.length - 1; i >= 0; i--) {
+    const it = State.items[i];
     if (it.type === 'text') {
-      const w = Math.max(40, it.text.length * it.size * 0.55);
-      const h = it.size * 1.2;
-      if (Math.abs(p.fx - it.x) <= w / 2 && Math.abs(p.fy - it.y) <= h / 2) return i;
+      const sz = it.size || 22;
+      ctx.font = `bold ${sz}px system-ui, sans-serif`;
+      const textW = Math.max(40, ctx.measureText(it.text).width + 16);
+      const textH = sz * 1.4;
+      if (Math.abs(p.fx - it.x) <= textW / 2 && Math.abs(p.fy - it.y) <= textH / 2) {
+        return i;
+      }
     } else if (it.type === 'image') {
-      if (Math.abs(p.fx - it.x) <= it.w / 2 && Math.abs(p.fy - it.y) <= it.h / 2) return i;
+      const iw = (it.w || 40) + 10;
+      const ih = (it.h || 40) + 10;
+      if (Math.abs(p.fx - it.x) <= iw / 2 && Math.abs(p.fy - it.y) <= ih / 2) {
+        return i;
+      }
     }
   }
   return -1;
 }
 
-function addTextAt(p, customText) {
-  const txt = customText !== undefined ? customText : ($('mapTextInput').value.trim() || prompt('Texto a añadir en el mapa:'));
-  if (!txt) return;
-  pushUndo();
-  S.items.push({
+function createTextItemAt(p, explicitText) {
+  const defaultTxt = $('mapTextInput').value.trim();
+  const txt = explicitText !== undefined ? explicitText : (defaultTxt || prompt('Texto a colocar en el mapa:'));
+  if (!txt || !txt.trim()) return;
+
+  pushUndoState();
+  State.items.push({
+    id: State.nextItemId++,
     type: 'text',
-    x: p.fx, y: p.fy,
-    text: txt,
+    x: p.fx,
+    y: p.fy,
+    text: txt.trim(),
     size: +$('itemSize').value || 22,
     color: $('itemColor').value || '#ffffff'
   });
-  redraw('Texto añadido');
+  renderScene('🔤 Texto añadido al mapa');
 }
 
-function triggerImageAt(p) {
-  S.pendingImgPos = p;
+function requestImageItemAt(p) {
+  State.pendingImagePos = { fx: p.fx, fy: p.fy };
+  $('itemImgFile').value = '';
   $('itemImgFile').click();
 }
 
 $('itemImgFile').addEventListener('change', e => {
-  const f = e.target.files[0]; if (!f || !S.pendingImgPos) return;
+  const file = e.target.files[0];
+  const pos = State.pendingImagePos;
+  State.pendingImagePos = null;
+  if (!file || !pos) return;
+
   const reader = new FileReader();
   reader.onload = ev => {
-    const src = ev.target.result;
+    const dataUrl = ev.target.result;
     const img = new Image();
     img.onload = () => {
-      pushUndo();
-      const baseSize = (+$('itemSize').value || 22) * 3;
+      pushUndoState();
+      const targetSize = (+$('itemSize').value || 22) * 3;
       const ratio = img.width / img.height;
-      const w = ratio >= 1 ? baseSize : baseSize * ratio;
-      const h = ratio >= 1 ? baseSize / ratio : baseSize;
-      S.items.push({ type: 'image', x: S.pendingImgPos.fx, y: S.pendingImgPos.fy, w, h, src, img });
-      redraw('Imagen añadida');
+      const w = ratio >= 1 ? targetSize : targetSize * ratio;
+      const h = ratio >= 1 ? targetSize / ratio : targetSize;
+      State.items.push({
+        id: State.nextItemId++,
+        type: 'image',
+        x: pos.fx,
+        y: pos.fy,
+        w,
+        h,
+        src: dataUrl,
+        img
+      });
+      renderScene('🖼️ Imagen añadida al mapa');
     };
-    img.src = src;
+    img.src = dataUrl;
   };
-  reader.readAsDataURL(f);
-  e.target.value = '';
+  reader.readAsDataURL(file);
 });
 
-function strokeSplit(a, b) {
-  [S.lines.getContext('2d'), S.base.getContext('2d')].forEach(c => {
-    c.globalCompositeOperation = 'source-over';
-    c.strokeStyle = c.fillStyle = '#141414';
-    c.lineWidth = 2.2; c.lineCap = 'round'; c.lineJoin = 'round';
-    c.beginPath(); c.moveTo(a.fx, a.fy); c.lineTo(b.fx, b.fy); c.stroke();
+// ============================================================================
+// MÓDULO 9: GESTIÓN DE PAÍSES Y GUERRA RÁPIDA
+// ============================================================================
+function addCountryToState(name, hexColor) {
+  const color = hexColor || DEFAULT_PALETTE[(State.nextCountryId - 1) % DEFAULT_PALETTE.length];
+  const country = {
+    id: State.nextCountryId++,
+    name: name || `País ${State.nextCountryId - 1}`,
+    color,
+    origColor: color
+  };
+  State.countries.push(country);
+  return country;
+}
+
+function setupDefaultCountries() {
+  State.countries = [];
+  State.nextCountryId = 1;
+  addCountryToState('🌊 Mar / Lago', '#0e79b2');
+  addCountryToState('Serbia', '#646aab');
+  addCountryToState('Croatia', '#845392');
+  addCountryToState('Bosnia', '#4727ab');
+  addCountryToState('Hungary', '#d79665');
+  addCountryToState('Austria', '#DCDBDB');
+  State.activeCountryId = State.countries[1].id;
+}
+
+function renderCountriesUI() {
+  const container = $('countries');
+  container.innerHTML = '';
+  const allRows = [{ id: 0, name: 'Sin Dueño', color: null }, ...State.countries];
+
+  allRows.forEach((c, idx) => {
+    const row = document.createElement('div');
+    row.className = 'crow' + (c.id === State.activeCountryId ? ' active' : '');
+    row.dataset.id = c.id;
+
+    if (c.color) {
+      const colorInput = document.createElement('input');
+      colorInput.type = 'color';
+      colorInput.value = c.color;
+      colorInput.addEventListener('input', () => {
+        c.color = colorInput.value;
+        c.origColor = colorInput.value;
+        renderScene();
+      });
+      colorInput.addEventListener('click', ev => ev.stopPropagation());
+      row.appendChild(colorInput);
+    } else {
+      const emptySwatch = document.createElement('span');
+      emptySwatch.className = 'nosw';
+      row.appendChild(emptySwatch);
+    }
+
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.className = 'nm';
+    nameInput.value = c.name;
+    if (!c.color) nameInput.disabled = true;
+    nameInput.addEventListener('input', () => {
+      c.name = nameInput.value;
+      syncWarSelectors();
+    });
+    row.appendChild(nameInput);
+
+    if (c.color) {
+      const delBtn = document.createElement('button');
+      delBtn.className = 'x';
+      delBtn.textContent = '×';
+      delBtn.title = 'Eliminar país';
+      delBtn.addEventListener('click', ev => {
+        ev.stopPropagation();
+        removeCountry(c.id);
+      });
+      row.appendChild(delBtn);
+    }
+
+    const shortcutSpan = document.createElement('span');
+    shortcutSpan.className = 'key';
+    shortcutSpan.textContent = idx < 10 ? idx : '';
+    row.appendChild(shortcutSpan);
+
+    row.addEventListener('click', () => setActiveCountry(c.id));
+    container.appendChild(row);
+  });
+
+  syncWarSelectors();
+}
+
+function setActiveCountry(id) {
+  State.activeCountryId = id;
+  document.querySelectorAll('.crow').forEach(r => {
+    r.classList.toggle('active', +r.dataset.id === id);
   });
 }
 
-function applySplit() {
-  updateStats('Calculando nuevas fronteras...');
-  setTimeout(() => {
-    const oldLabels = S.labels, oldOwners = S.owners, oldGroups = S.groups, oldLocked = S.locked;
-    detectProvinces(true);
-    const newOwners = new Int32Array(S.n + 1), newGroups = new Int32Array(S.n + 1), newLocked = new Uint8Array(S.n + 1);
-    const tallies = Array.from({length: S.n + 1}, () => new Map());
-    
-    for (let i = 0; i < S.w * S.h; i++) {
-      const nL = S.labels[i], oL = oldLabels[i];
-      if (nL && oL) { const t = tallies[nL]; t.set(oL, (t.get(oL) || 0) + 1); }
+function removeCountry(id) {
+  pushUndoState();
+  for (let i = 1; i <= State.n; i++) {
+    if (State.owners[i] === id && !State.locked[i]) {
+      State.owners[i] = 0;
     }
-    for (let i = 1; i <= S.n; i++) {
-      let bestOld = 0, max = 0;
-      for (const [oL, count] of tallies[i].entries()) {
-        if (count > max) { max = count; bestOld = oL; }
-      }
-      if (bestOld) {
-        newOwners[i] = oldOwners[bestOld];
-        newGroups[i] = oldGroups ? oldGroups[bestOld] : bestOld;
-        newLocked[i] = oldLocked ? oldLocked[bestOld] : 0;
-      } else {
-        newGroups[i] = i;
-      }
-    }
-    S.owners = newOwners; S.groups = newGroups; S.locked = newLocked;
-    S.undo = []; S.redo = [];
-    redraw('Frontera creada');
-  }, 10);
+  }
+  State.countries = State.countries.filter(c => c.id !== id);
+  if (State.activeCountryId === id) {
+    State.activeCountryId = State.countries.length ? State.countries[0].id : 0;
+  }
+  renderCountriesUI();
+  renderScene('País eliminado');
 }
 
-// ==========================================
-// 9. MENÚ CONTEXTUAL (CLIC DERECHO)
-// ==========================================
-function hideCtxMenu() { ctxMenu.hidden = true; }
-window.addEventListener('click', e => { if (!ctxMenu.contains(e.target)) hideCtxMenu(); });
+function syncWarSelectors() {
+  for (const selId of ['warA', 'warB']) {
+    const sel = $(selId);
+    const prevVal = +sel.value;
+    sel.innerHTML = '';
+    State.countries.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      opt.textContent = c.name;
+      sel.appendChild(opt);
+    });
+    if (State.countries.some(c => c.id === prevVal)) {
+      sel.value = prevVal;
+    }
+  }
+  if ($('warA').value === $('warB').value && State.countries.length > 1) {
+    $('warB').selectedIndex = 1;
+  }
+}
 
-view.addEventListener('contextmenu', e => {
-  e.preventDefault();
-  if (!S.labels || S.playing) return;
-  const p = toMap(e);
-  const r = regionAt(p);
-  const hitItemIdx = itemAt(p);
-  
+function initDatabaseSelectors() {
+  const contSel = $('continentSelect');
+  const countrySel = $('countrySelect');
+
+  for (const continent in COUNTRY_DB) {
+    const opt = document.createElement('option');
+    opt.value = continent;
+    opt.textContent = continent;
+    contSel.appendChild(opt);
+  }
+
+  contSel.addEventListener('change', () => {
+    countrySel.innerHTML = '';
+    const list = COUNTRY_DB[contSel.value];
+    for (const cName in list) {
+      const opt = document.createElement('option');
+      opt.value = cName;
+      opt.textContent = `${cName} (${list[cName].colorName})`;
+      countrySel.appendChild(opt);
+    }
+  });
+
+  contSel.dispatchEvent(new Event('change'));
+
+  $('addDbCountryBtn').addEventListener('click', () => {
+    const cName = countrySel.value;
+    const data = COUNTRY_DB[contSel.value][cName];
+    const existing = State.countries.find(c => c.name === cName);
+    if (existing) {
+      setActiveCountry(existing.id);
+      return;
+    }
+    const created = addCountryToState(cName, data.hex);
+    renderCountriesUI();
+    setActiveCountry(created.id);
+  });
+}
+
+// ============================================================================
+// MÓDULO 10: HISTORIAL (DESHACER / REHACER)
+// ============================================================================
+function createSnapshot() {
+  return {
+    n: State.n,
+    labels: State.labels.slice(),
+    customBorders: State.customBorders.slice(),
+    linesData: State.linesCanvas.getContext('2d').getImageData(0, 0, State.w, State.h),
+    owners: State.owners.slice(),
+    groups: State.groups.slice(),
+    locked: State.locked.slice(),
+    countries: State.countries.map(c => ({ ...c })),
+    items: cloneItemsList(State.items)
+  };
+}
+
+function pushUndoState() {
+  if (!State.labels) return;
+  State.undoStack.push(createSnapshot());
+  if (State.undoStack.length > 20) State.undoStack.shift();
+  State.redoStack.length = 0;
+}
+
+function applySnapshot(snap) {
+  State.n = snap.n;
+  State.labels = snap.labels.slice();
+  State.customBorders = snap.customBorders.slice();
+  State.linesCanvas.getContext('2d').putImageData(snap.linesData, 0, 0);
+  State.owners = snap.owners.slice();
+  State.groups = snap.groups.slice();
+  State.locked = snap.locked.slice();
+  State.countries = snap.countries.map(c => ({ ...c }));
+  State.items = cloneItemsList(snap.items);
+  computeProvinceCentroids();
+  renderCountriesUI();
+  renderScene();
+}
+
+function undoAction() {
+  const snap = State.undoStack.pop();
+  if (!snap) return;
+  State.redoStack.push(createSnapshot());
+  applySnapshot(snap);
+}
+
+function redoAction() {
+  const snap = State.redoStack.pop();
+  if (!snap) return;
+  State.undoStack.push(createSnapshot());
+  applySnapshot(snap);
+}
+
+// ============================================================================
+// MÓDULO 11: MENÚ CONTEXTUAL AISLADO (CLIC DERECHO)
+// ============================================================================
+function closeContextMenu() {
+  ctxMenu.hidden = true;
+}
+
+// Aislamiento estricto: ningún evento dentro del menú llega al mapa
+['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click', 'contextmenu'].forEach(evName => {
+  ctxMenu.addEventListener(evName, ev => ev.stopPropagation());
+});
+
+window.addEventListener('pointerdown', ev => {
+  if (!ctxMenu.hidden && !ctxMenu.contains(ev.target)) {
+    closeContextMenu();
+  }
+});
+
+view.addEventListener('contextmenu', ev => {
+  ev.preventDefault();
+  ev.stopPropagation();
+  if (!State.labels || State.playing) return;
+
+  const pt = clientToMapCoords(ev);
+  const provId = State.labels[pt.y * State.w + pt.x];
+  const itemIdx = findItemAtPoint(pt);
+
   ctxMenu.innerHTML = '';
-  const addHeader = txt => {
-    const h = document.createElement('div'); h.className = 'ctx-head'; h.textContent = txt; ctxMenu.appendChild(h);
+
+  const addMenuHeader = text => {
+    const h = document.createElement('div');
+    h.className = 'ctx-head';
+    h.textContent = text;
+    ctxMenu.appendChild(h);
   };
-  const addItem = (label, fn) => {
-    const div = document.createElement('div'); div.className = 'ctx-item'; div.textContent = label;
-    div.onclick = () => { hideCtxMenu(); fn(); };
-    ctxMenu.appendChild(div);
+  const addMenuItem = (label, callback, isDanger = false) => {
+    const item = document.createElement('div');
+    item.className = 'ctx-item' + (isDanger ? ' danger' : '');
+    item.textContent = label;
+    item.addEventListener('click', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      closeContextMenu();
+      callback();
+    });
+    ctxMenu.appendChild(item);
   };
-  const addSep = () => {
-    const s = document.createElement('div'); s.className = 'ctx-sep'; ctxMenu.appendChild(s);
+  const addMenuSep = () => {
+    const s = document.createElement('div');
+    s.className = 'ctx-sep';
+    ctxMenu.appendChild(s);
   };
 
-  if (r) {
-    const g = S.groups[r];
-    const locked = isGroupLocked(g);
-    const ownerObj = S.countries.find(c => c.id === S.owners[r]);
-    addHeader(`Provincia #${r} (${ownerObj ? ownerObj.name : 'Sin Dueño'})`);
+  // 1. Opciones si se hizo clic derecho sobre un Texto o Imagen
+  if (itemIdx >= 0) {
+    const targetItem = State.items[itemIdx];
+    addMenuHeader(targetItem.type === 'text' ? `Texto: "${targetItem.text}"` : 'Imagen seleccionada');
     
-    addItem(locked ? '🔓 Desbloquear provincia' : '🔒 Bloquear provincia (No editable)', () => {
-      pushUndo();
-      setGroupLock(g, !locked);
-      redraw(!locked ? '🔒 Provincia bloqueada' : '🔓 Provincia desbloqueada');
+    if (targetItem.type === 'text') {
+      addMenuItem('✏️ Editar contenido del texto...', () => {
+        const newText = prompt('Editar texto:', targetItem.text);
+        if (newText !== null && newText.trim()) {
+          pushUndoState();
+          targetItem.text = newText.trim();
+          renderScene('✏️ Texto actualizado');
+        }
+      });
+    }
+
+    addMenuItem('📏 Cambiar tamaño / escala...', () => {
+      const currentSz = targetItem.type === 'text' ? targetItem.size : Math.round(targetItem.w);
+      const inputSz = prompt('Nuevo tamaño en píxeles:', currentSz);
+      const val = parseFloat(inputSz);
+      if (val && val > 4) {
+        pushUndoState();
+        if (targetItem.type === 'text') {
+          targetItem.size = val;
+        } else {
+          const ratio = targetItem.w / targetItem.h;
+          targetItem.w = val;
+          targetItem.h = val / ratio;
+        }
+        renderScene('📏 Tamaño actualizado');
+      }
+    });
+
+    addMenuItem('🗑️ Eliminar este elemento', () => {
+      pushUndoState();
+      State.items.splice(itemIdx, 1);
+      renderScene('🗑️ Elemento eliminado');
+    }, true);
+
+    addMenuSep();
+  }
+
+  // 2. Opciones de la Provincia bajo el cursor
+  if (provId > 0) {
+    const locked = isProvinceLocked(provId);
+    const ownerCountry = State.countries.find(c => c.id === State.owners[provId]);
+    const groupMembers = getProvinceMembers(provId);
+    addMenuHeader(`Provincia #${provId} (${ownerCountry ? ownerCountry.name : 'Sin Dueño'})${groupMembers.length > 1 ? ` [Grupo: ${groupMembers.length}]` : ''}`);
+
+    addMenuItem(locked ? '🔓 Desbloquear provincia' : '🔒 Bloquear provincia (Proteger)', () => {
+      pushUndoState();
+      setProvinceLock(provId, !locked);
+      renderScene(!locked ? `🔒 Provincia #${provId} bloqueada` : `🔓 Provincia #${provId} desbloqueada`);
     });
 
     if (!locked) {
-      const actCountry = S.countries.find(c => c.id === S.active);
-      if (actCountry) {
-        addItem(`🏳️ Asignar a ${actCountry.name}`, () => { pushUndo(); assignRegion(r, S.active); });
-      }
-      const seaCountry = S.countries.find(c => c.name.includes('Mar') || c.color === '#0e79b2');
-      if (seaCountry) {
-        addItem('🌊 Pintar como Mar / Lago', () => { pushUndo(); assignRegion(r, seaCountry.id); });
-      }
-      addItem('🏳️ Desasignar (Sin Dueño)', () => { pushUndo(); assignRegion(r, 0); });
-      addSep();
-      addItem('🔗 Fijar como base de grupo', () => { S.groupAnchor = r; updateStats(`Provincia #${r} fijada como base de grupo.`); });
-      if (S.groupAnchor && S.groupAnchor !== r) {
-        addItem(`🔗 Unir al grupo de #${S.groupAnchor}`, () => {
-          pushUndo();
-          const targetG = S.groups[S.groupAnchor];
-          const targetOwner = S.owners[S.groupAnchor];
-          for (let i = 1; i <= S.n; i++) if (S.groups[i] === g) { S.groups[i] = targetG; S.owners[i] = targetOwner; }
-          redraw('🔗 Provincias agrupadas');
+      const activeCountry = State.countries.find(c => c.id === State.activeCountryId);
+      if (activeCountry) {
+        addMenuItem(`🏳️ Asignar a ${activeCountry.name}`, () => {
+          pushUndoState();
+          assignProvinceOwner(provId, State.activeCountryId);
         });
       }
-      addItem('✂️ Desagrupar esta provincia', () => { pushUndo(); S.groups[r] = r; redraw('Provincia desagrupada'); });
-    }
-    addSep();
-  }
 
-  addItem('🔤 Añadir etiqueta de texto aquí...', () => {
-    const t = prompt('Escribe el texto (ej. Capital, País, Alianza):', $('mapTextInput').value || '');
-    if (t) addTextAt(p, t);
-  });
-  addItem('🖼️ Añadir imagen aquí...', () => triggerImageAt(p));
+      const seaCountry = State.countries.find(c => c.name.includes('Mar') || c.color === '#0e79b2');
+      if (seaCountry) {
+        addMenuItem('🌊 Pintar como Mar / Lago', () => {
+          pushUndoState();
+          assignProvinceOwner(provId, seaCountry.id);
+        });
+      }
 
-  if (hitItemIdx >= 0) {
-    addSep();
-    const hit = S.items[hitItemIdx];
-    if (hit.type === 'text') {
-      addItem(`✏️ Editar texto "${hit.text}"`, () => {
-        const nt = prompt('Nuevo texto:', hit.text);
-        if (nt !== null && nt.trim()) { pushUndo(); hit.text = nt.trim(); redraw(); }
+      addMenuItem('🏳️ Desasignar (Sin Dueño)', () => {
+        pushUndoState();
+        assignProvinceOwner(provId, 0);
       });
+
+      addMenuSep();
+
+      addMenuItem('🔗 Fijar como base de grupo', () => {
+        State.groupAnchor = provId;
+        updateStatus(`🔗 Provincia #${provId} fijada como base de grupo.`);
+      });
+
+      if (State.groupAnchor && State.groupAnchor !== provId && !State.locked[State.groupAnchor]) {
+        addMenuItem(`🔗 Unir al grupo de #${State.groupAnchor}`, () => {
+          mergeProvincesIntoGroup([State.groupAnchor, provId], State.groupAnchor);
+        });
+      }
+
+      if (State.groups[provId] > 0) {
+        addMenuItem('✂️ Desagrupar esta provincia', () => {
+          pushUndoState();
+          State.groups[provId] = 0;
+          renderScene(`✂️ Provincia #${provId} separada del grupo`);
+        });
+      }
     }
-    addItem('🗑️ Eliminar este elemento', () => { pushUndo(); S.items.splice(hitItemIdx, 1); redraw('Elemento eliminado'); });
+    addMenuSep();
   }
+
+  // 3. Acciones rápidas en esta coordenada
+  addMenuItem('🔤 Añadir texto aquí...', () => {
+    const txt = prompt('Texto a colocar en el mapa:', $('mapTextInput').value || '');
+    if (txt) createTextItemAt(pt, txt);
+  });
+  addMenuItem('🖼️ Añadir imagen aquí...', () => requestImageItemAt(pt));
 
   ctxMenu.hidden = false;
-  const mw = 230, mh = ctxMenu.offsetHeight || 260;
-  ctxMenu.style.left = Math.min(e.clientX, window.innerWidth - mw - 10) + 'px';
-  ctxMenu.style.top = Math.min(e.clientY, window.innerHeight - mh - 10) + 'px';
+  const menuW = 240;
+  const menuH = ctxMenu.offsetHeight || 260;
+  ctxMenu.style.left = Math.min(ev.clientX, window.innerWidth - menuW - 8) + 'px';
+  ctxMenu.style.top = Math.min(ev.clientY, window.innerHeight - menuH - 8) + 'px';
 });
 
-// ==========================================
-// 10. EVENTOS DEL PUNTERO EN EL MAPA
-// ==========================================
-view.addEventListener('pointerdown', e => {
-  if (S.playing || !S.labels) return;
-  if (e.button === 2) return;
-  hideCtxMenu();
-  view.setPointerCapture(e.pointerId);
-  
-  if (e.button === 1 || S.space || S.tool === 'pan') {
-    S.drag = { type: 'pan', x: e.clientX, y: e.clientY, px: S.panX, py: S.panY }; 
+// ============================================================================
+// MÓDULO 12: CÁMARA (ZOOM Y PAN) E INTERACCIÓN EN EL LIENZO
+// ============================================================================
+function updateStageTransform() {
+  stage.style.transform = `translate(${State.panX}px, ${State.panY}px) scale(${State.zoom})`;
+}
+
+function fitMapToViewport() {
+  if (!State.w || !State.h) return;
+  const vw = view.clientWidth;
+  const vh = view.clientHeight;
+  State.zoom = Math.min(vw / State.w, vh / State.h) * 0.96;
+  State.panX = (vw - State.w * State.zoom) / 2;
+  State.panY = (vh - State.h * State.zoom) / 2;
+  updateStageTransform();
+}
+
+view.addEventListener('wheel', ev => {
+  ev.preventDefault();
+  closeContextMenu();
+  const rect = view.getBoundingClientRect();
+  const mx = ev.clientX - rect.left;
+  const my = ev.clientY - rect.top;
+  const newZoom = clamp(State.zoom * (ev.deltaY < 0 ? 1.15 : 1 / 1.15), 0.05, 25);
+  State.panX = mx - (mx - State.panX) * (newZoom / State.zoom);
+  State.panY = my - (my - State.panY) * (newZoom / State.zoom);
+  State.zoom = newZoom;
+  updateStageTransform();
+}, { passive: false });
+
+window.addEventListener('resize', () => {
+  if (State.labels) fitMapToViewport();
+});
+
+function clientToMapCoords(ev) {
+  const rect = cv.getBoundingClientRect();
+  const fx = ((ev.clientX - rect.left) / rect.width) * State.w;
+  const fy = ((ev.clientY - rect.top) / rect.height) * State.h;
+  return {
+    fx,
+    fy,
+    x: clamp(Math.floor(fx), 0, State.w - 1),
+    y: clamp(Math.floor(fy), 0, State.h - 1)
+  };
+}
+
+view.addEventListener('pointerdown', ev => {
+  if (State.playing || !State.labels) return;
+  if (ev.button === 2) return; // Clic derecho reservado para el menú contextual
+
+  // Si el menú contextual estaba abierto, el primer clic solo lo cierra sin activar herramientas
+  if (!ctxMenu.hidden) {
+    closeContextMenu();
     return;
   }
-  if (e.button !== 0) return;
-  const p = toMap(e);
-  
-  switch (S.tool) {
-    case 'fill': pushUndo(); S.drag = { type: 'fill' }; assign(p, S.active); break;
-    case 'unown': pushUndo(); S.drag = { type: 'unown' }; assign(p, 0); break;
+
+  view.setPointerCapture(ev.pointerId);
+
+  if (ev.button === 1 || State.spacePressed || State.tool === 'pan') {
+    State.drag = { type: 'pan', startX: ev.clientX, startY: ev.clientY, origPanX: State.panX, origPanY: State.panY };
+    return;
+  }
+
+  if (ev.button !== 0) return;
+  const pt = clientToMapCoords(ev);
+  const provId = State.labels[pt.y * State.w + pt.x];
+
+  switch (State.tool) {
+    case 'fill':
+      pushUndoState();
+      State.drag = { type: 'fill' };
+      assignProvinceOwner(provId, State.activeCountryId);
+      break;
+
+    case 'unown':
+      pushUndoState();
+      State.drag = { type: 'unown' };
+      assignProvinceOwner(provId, 0);
+      break;
+
     case 'group':
-      S.drag = { type: 'group', startP: p, isLasso: false };
-      S.lasso = [p];
+      State.drag = { type: 'group', startPt: pt, isLasso: false };
+      State.lassoPoints = [pt];
       break;
+
     case 'ungroup':
-      pushUndo(); S.drag = { type: 'ungroup' }; 
-      const ru = regionAt(p); if (ru && !S.locked[ru]) { S.groups[ru] = ru; redraw(); }
-      break;
-    case 'pick': 
-      const rp = regionAt(p); if (rp) setActive(S.owners[rp]); break;
-    case 'split': 
-      S.drag = { type: 'split', last: p, moved: false }; strokeSplit(p, p); recompose(); break;
-    case 'text':
-      addTextAt(p); break;
-    case 'image':
-      triggerImageAt(p); break;
-    case 'moveItem':
-      const idx = itemAt(p);
-      if (idx >= 0) {
-        pushUndo();
-        S.drag = { type: 'moveItem', idx, ox: S.items[idx].x - p.fx, oy: S.items[idx].y - p.fy };
+      pushUndoState();
+      State.drag = { type: 'ungroup' };
+      if (provId && !State.locked[provId]) {
+        State.groups[provId] = 0;
+        renderScene(`✂️ Provincia #${provId} desagrupada`);
       }
       break;
-  }
-});
 
-view.addEventListener('pointermove', e => {
-  const d = S.drag; if (!d) return;
-  if (d.type === 'pan') { S.panX = d.px + e.clientX - d.x; S.panY = d.py + e.clientY - d.y; applyView(); return; }
-  const p = toMap(e);
-  
-  if (d.type === 'fill') assign(p, S.active);
-  else if (d.type === 'unown') assign(p, 0);
-  else if (d.type === 'group') {
-    const dist = Math.hypot(p.fx - d.startP.fx, p.fy - d.startP.fy);
-    if (dist > 6) d.isLasso = true;
-    if (d.isLasso) {
-      S.lasso.push(p);
-      recompose();
+    case 'split':
+      State.drag = { type: 'split' };
+      State.splitPoints = [pt];
+      break;
+
+    case 'pick':
+      if (provId > 0) setActiveCountry(State.owners[provId]);
+      break;
+
+    case 'text':
+      createTextItemAt(pt);
+      break;
+
+    case 'image':
+      requestImageItemAt(pt);
+      break;
+
+    case 'moveItem': {
+      const idx = findItemAtPoint(pt);
+      if (idx >= 0) {
+        pushUndoState();
+        State.drag = {
+          type: 'moveItem',
+          idx,
+          offsetX: State.items[idx].x - pt.fx,
+          offsetY: State.items[idx].y - pt.fy
+        };
+      }
+      break;
     }
   }
-  else if (d.type === 'ungroup') {
-    const r = regionAt(p); if (r && !S.locked[r] && S.groups[r] !== r) { S.groups[r] = r; redraw(); }
+});
+
+view.addEventListener('pointermove', ev => {
+  const d = State.drag;
+  if (!d) return;
+
+  if (d.type === 'pan') {
+    State.panX = d.origPanX + (ev.clientX - d.startX);
+    State.panY = d.origPanY + (ev.clientY - d.startY);
+    updateStageTransform();
+    return;
   }
-  else if (d.type === 'split') { d.moved = true; strokeSplit(d.last, p); d.last = p; recompose(); }
-  else if (d.type === 'moveItem') {
-    const it = S.items[d.idx];
-    it.x = p.fx + d.ox; it.y = p.fy + d.oy;
-    recompose();
+
+  const pt = clientToMapCoords(ev);
+  const provId = State.labels[pt.y * State.w + pt.x];
+
+  if (d.type === 'fill') {
+    assignProvinceOwner(provId, State.activeCountryId);
+  } else if (d.type === 'unown') {
+    assignProvinceOwner(provId, 0);
+  } else if (d.type === 'group') {
+    if (Math.hypot(pt.fx - d.startPt.fx, pt.fy - d.startPt.fy) > 6) {
+      d.isLasso = true;
+    }
+    if (d.isLasso) {
+      State.lassoPoints.push(pt);
+      recomposeOnly();
+    }
+  } else if (d.type === 'ungroup') {
+    if (provId && !State.locked[provId] && State.groups[provId] !== 0) {
+      State.groups[provId] = 0;
+      renderScene();
+    }
+  } else if (d.type === 'split') {
+    State.splitPoints.push(pt);
+    recomposeOnly();
+  } else if (d.type === 'moveItem') {
+    const item = State.items[d.idx];
+    if (item) {
+      item.x = pt.fx + d.offsetX;
+      item.y = pt.fy + d.offsetY;
+      recomposeOnly();
+    }
   }
 });
 
-const endDrag = e => {
-  const d = S.drag; if (!d) return;
+function finishPointerDrag() {
+  const d = State.drag;
+  if (!d) return;
+
   if (d.type === 'group') {
-    if (d.isLasso && S.lasso.length > 2) {
-      applyLassoGroup(S.lasso);
+    if (d.isLasso && State.lassoPoints.length > 2) {
+      const enclosedProvs = findProvincesInLasso(State.lassoPoints);
+      mergeProvincesIntoGroup(enclosedProvs, State.groupAnchor);
     } else {
-      const r = regionAt(d.startP);
-      if (r && !S.locked[r]) {
-        if (!S.groupAnchor || !S.groups[S.groupAnchor]) {
-          S.groupAnchor = r;
-          updateStats(`🔗 Provincia #${r} seleccionada como base. Haz clic en otras o usa el lazo para unirlas.`);
-        } else if (r === S.groupAnchor) {
-          S.groupAnchor = 0;
-          updateStats('Selección de grupo reiniciada.');
+      const provId = State.labels[d.startPt.y * State.w + d.startPt.x];
+      if (provId && !State.locked[provId]) {
+        if (!State.groupAnchor) {
+          State.groupAnchor = provId;
+          updateStatus(`🔗 Provincia #${provId} fijada como base. Haz clic en otras o arrastra un lazo para unirlas.`);
+        } else if (State.groupAnchor === provId) {
+          State.groupAnchor = 0;
+          updateStatus('Selección de grupo reiniciada.');
         } else {
-          pushUndo();
-          const targetG = S.groups[S.groupAnchor];
-          const owner = S.owners[S.groupAnchor];
-          const oldG = S.groups[r];
-          for (let i = 1; i <= S.n; i++) {
-            if (S.groups[i] === oldG && !S.locked[i]) { S.groups[i] = targetG; S.owners[i] = owner; }
-          }
-          redraw(`🔗 Provincia #${r} unida al grupo #${S.groupAnchor}`);
+          mergeProvincesIntoGroup([State.groupAnchor, provId], State.groupAnchor);
         }
       }
     }
-    S.lasso = null; recompose();
-  } else if (d.type === 'split' && d.moved) {
-    applySplit();
+    State.lassoPoints = null;
+    recomposeOnly();
+  } else if (d.type === 'split') {
+    const pts = State.splitPoints;
+    State.splitPoints = null;
+    if (pts && pts.length > 1) {
+      commitSplitBorder(pts);
+    } else {
+      recomposeOnly();
+    }
   }
-  S.drag = null;
-};
-view.addEventListener('pointerup', endDrag); 
-view.addEventListener('pointercancel', endDrag);
 
-// ==========================================
-// 11. ANIMACIÓN (KEYFRAMES) Y PROYECTO
-// ==========================================
-function makeKeyframe() {
-  return { 
-    owners: S.owners.slice(), 
-    groups: S.groups.slice(), 
-    locked: S.locked.slice(),
-    countries: S.countries.map(c => ({ ...c })), 
-    items: cloneItems(S.items),
-    caption: S.caption, 
-    hold: +$('hold').value || 0, 
-    trans: +$('trans').value || 0 
+  State.drag = null;
+}
+
+view.addEventListener('pointerup', finishPointerDrag);
+view.addEventListener('pointercancel', finishPointerDrag);
+
+// ============================================================================
+// MÓDULO 13: LÍNEA DE TIEMPO, ANIMACIÓN Y EXPORTACIÓN DE VIDEO
+// ============================================================================
+function captureKeyframeData() {
+  return {
+    owners: State.owners.slice(),
+    groups: State.groups.slice(),
+    locked: State.locked.slice(),
+    countries: State.countries.map(c => ({ ...c })),
+    items: cloneItemsList(State.items),
+    caption: State.caption,
+    hold: +$('holdInput').value || 0,
+    trans: +$('transInput').value || 0
   };
 }
 
-function renderKeyframes() {
-  const el = $('kfList'); el.innerHTML = '';
-  S.keyframes.forEach((k, i) => {
-    const b = document.createElement('div'); b.className = 'kf' + (i === S.sel ? ' sel' : '');
-    b.textContent = (i + 1) + (k.caption ? ' · ' + k.caption : '');
-    const s = document.createElement('small'); s.textContent = k.hold + 's'; b.appendChild(s);
-    b.addEventListener('click', () => selectKeyframe(i)); el.appendChild(b);
+function renderKeyframesUI() {
+  const list = $('kfList');
+  list.innerHTML = '';
+  State.keyframes.forEach((kf, idx) => {
+    const chip = document.createElement('div');
+    chip.className = 'kf' + (idx === State.selectedKf ? ' sel' : '');
+    chip.textContent = `${idx + 1}${kf.caption ? ' · ' + kf.caption : ''}`;
+    const sub = document.createElement('small');
+    sub.textContent = `${kf.hold}s`;
+    chip.appendChild(sub);
+    chip.addEventListener('click', () => loadKeyframeToStage(idx));
+    list.appendChild(chip);
   });
-  if (!S.keyframes.length) el.textContent = 'Sin fotogramas — Colorea el mapa y presiona "+ Fotograma".';
+  if (!State.keyframes.length) {
+    list.textContent = 'Sin fotogramas — Colorea el mapa y presiona "+ Fotograma".';
+  }
 }
 
-function selectKeyframe(i) {
-  const k = S.keyframes[i]; if (!k) return;
-  S.sel = i; 
-  S.owners = k.owners.slice(); 
-  S.groups = k.groups ? k.groups.slice() : new Int32Array(S.n+1).map((_,idx)=>idx);
-  S.locked = k.locked ? k.locked.slice() : new Uint8Array(S.n+1);
-  S.countries = k.countries.map(c => ({ ...c }));
-  S.items = cloneItems(k.items || []);
-  S.caption = k.caption; $('caption').value = k.caption; 
-  $('hold').value = k.hold; $('trans').value = k.trans;
-  S.undo = []; S.redo = []; renderCountries(); renderKeyframes(); redraw();
+function loadKeyframeToStage(idx) {
+  const kf = State.keyframes[idx];
+  if (!kf) return;
+  State.selectedKf = idx;
+  State.owners = kf.owners.slice();
+  State.groups = kf.groups ? kf.groups.slice() : new Int32Array(State.n + 1);
+  State.locked = kf.locked ? kf.locked.slice() : new Uint8Array(State.n + 1);
+  State.countries = kf.countries.map(c => ({ ...c }));
+  State.items = cloneItemsList(kf.items || []);
+  State.caption = kf.caption || '';
+  $('captionInput').value = State.caption;
+  $('holdInput').value = kf.hold;
+  $('transInput').value = kf.trans;
+  renderCountriesUI();
+  renderKeyframesUI();
+  renderScene();
 }
 
-$('kfAdd').onclick = () => { const at = S.sel >= 0 ? S.sel + 1 : S.keyframes.length; S.keyframes.splice(at, 0, makeKeyframe()); S.sel = at; renderKeyframes(); };
-$('kfUpdate').onclick = () => { if (S.sel < 0) return; S.keyframes[S.sel] = makeKeyframe(); renderKeyframes(); updateStats('Fotograma actualizado'); };$('kfDel').onclick = () => { if (S.sel < 0) return; S.keyframes.splice(S.sel, 1); S.sel = Math.min(S.sel, S.keyframes.length - 1); renderKeyframes(); };
-
-function moveKf(d) {
-  const i = S.sel, j = i + d;
-  if (i < 0 || j < 0 || j >= S.keyframes.length) return;
-  [S.keyframes[i], S.keyframes[j]] = [S.keyframes[j], S.keyframes[i]]; S.sel = j; renderKeyframes();
+function interpolateColorTables(tableA, tableB, t, outTable) {
+  for (let i = 0; i < tableA.length; i++) {
+    const a = tableA[i], b = tableB[i];
+    if (a === b) { outTable[i] = a; continue; }
+    const aa = a >>> 24, ba = b >>> 24;
+    let r, g, bl;
+    if (!aa) { r = b & 255; g = (b >> 8) & 255; bl = (b >> 16) & 255; }
+    else if (!ba) { r = a & 255; g = (a >> 8) & 255; bl = (a >> 16) & 255; }
+    else {
+      r = (a & 255) + ((b & 255) - (a & 255)) * t;
+      g = ((a >> 8) & 255) + (((b >> 8) & 255) - ((a >> 8) & 255)) * t;
+      bl = ((a >> 16) & 255) + (((b >> 16) & 255) - ((a >> 16) & 255)) * t;
+    }
+    const alpha = Math.round(aa + (ba - aa) * t);
+    outTable[i] = ((alpha << 24) | ((bl | 0) << 16) | ((g | 0) << 8) | (r | 0)) >>> 0;
+  }
+  return outTable;
 }
-$('kfLeft').onclick = () => moveKf(-1);$('kfRight').onclick = () => moveKf(1);
-$('hold').addEventListener('change', () => { if (S.sel >= 0) { S.keyframes[S.sel].hold = +$('hold').value || 0; renderKeyframes(); } });
-$('trans').addEventListener('change', () => { if (S.sel >= 0) S.keyframes[S.sel].trans = +$('trans').value || 0; });
-$('caption').addEventListener('input', () => { S.caption =$('caption').value; recompose(); });
-for (const id of ['capSize', 'capPos', 'mode', 'opacity']) $(id).addEventListener('input', recompose);
 
-function pickMime() {
-  if (!window.MediaRecorder) return null;
-  return ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm', 'video/mp4'].find(m => MediaRecorder.isTypeSupported(m)) || null;
-}
-
-function download(blob, name) {
-  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
-  document.body.appendChild(a); a.click(); a.remove();
+function triggerBlobDownload(blob, filename) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 }
 
-function play(record) {
-  if (S.playing) return;
-  const kfs = S.keyframes;
-  if (!kfs.length) return updateStats('Agrega al menos un fotograma primero.');
-  let mime = null;
-  if (record) { mime = pickMime(); if (!mime) return updateStats('Navegador no compatible con grabación.'); }
+function playTimeline(recordVideo = false) {
+  if (State.playing) return;
+  const kfs = State.keyframes;
+  if (!kfs.length) return updateStatus('Añade al menos un fotograma en la línea de tiempo.');
 
-  const tables = kfs.map(k => colorTable(k.owners, k.countries));
-  const scratch = new Uint32Array(S.n + 1);
-  const segs = []; let T = 0;
-  
+  let mimeType = null;
+  if (recordVideo) {
+    if (!window.MediaRecorder) return updateStatus('MediaRecorder no disponible en este navegador.');
+    mimeType = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm', 'video/mp4']
+      .find(m => MediaRecorder.isTypeSupported(m)) || null;
+    if (!mimeType) return updateStatus('Formato de grabación no soportado.');
+  }
+
+  const tables = kfs.map(k => buildColorLookupTable(k.owners, k.countries));
+  const scratchTable = new Uint32Array(State.n + 1);
+  const segments = [];
+  let totalDuration = 0;
+
   kfs.forEach((k, i) => {
-    if (i > 0 && k.trans > 0) { segs.push({ tr: true, a: i - 1, b: i, s: T, d: k.trans }); T += k.trans; }
-    const d = (k.hold > 0 || i === kfs.length - 1) ? Math.max(k.hold, 0.1) : 0;
-    if (d) { segs.push({ tr: false, a: i, s: T, d }); T += d; }
+    if (i > 0 && k.trans > 0) {
+      segments.push({ isTrans: true, a: i - 1, b: i, start: totalDuration, dur: k.trans });
+      totalDuration += k.trans;
+    }
+    const holdDur = (k.hold > 0 || i === kfs.length - 1) ? Math.max(k.hold, 0.1) : 0;
+    if (holdDur) {
+      segments.push({ isTrans: false, a: i, start: totalDuration, dur: holdDur });
+      totalDuration += holdDur;
+    }
   });
 
-  const draw = (seg, el) => {
-    if (!seg.tr) {
-      renderOverlay(tables[seg.a]);
-      compose(kfs[seg.a].items, kfs[seg.a].caption);
+  let recorder = null;
+  const recordedChunks = [];
+  if (recordVideo) {
+    recorder = new MediaRecorder(cv.captureStream(30), { mimeType, videoBitsPerSecond: 16e6 });
+    recorder.ondataavailable = ev => { if (ev.data.size) recordedChunks.push(ev.data); };
+    recorder.onstop = () => {
+      const ext = mimeType.includes('mp4') ? 'mp4' : 'webm';
+      triggerBlobDownload(new Blob(recordedChunks, { type: mimeType }), `map-animation.${ext}`);
+    };
+    recorder.start();
+  }
+
+  State.playing = true;
+  updateStatus(recordVideo ? '🔴 Grabando video...' : '▶ Reproduciendo animación...');
+  const startTime = performance.now();
+
+  const renderSegment = (seg, elapsed) => {
+    if (!seg.isTrans) {
+      paintOverlayBuffer(tables[seg.a]);
+      composeCanvasFrame(kfs[seg.a].items, kfs[seg.a].caption);
     } else {
-      const p = clamp((el - seg.s) / seg.d, 0, 1), e = p * p * (3 - 2 * p);
-      renderOverlay(lerpTable(tables[seg.a], tables[seg.b], e, scratch));
-      const activeK = p < 0.5 ? kfs[seg.a] : kfs[seg.b];
-      compose(activeK.items, activeK.caption);
+      const p = clamp((elapsed - seg.start) / seg.dur, 0, 1);
+      const ease = p * p * (3 - 2 * p);
+      paintOverlayBuffer(interpolateColorTables(tables[seg.a], tables[seg.b], ease, scratchTable));
+      const activeKf = p < 0.5 ? kfs[seg.a] : kfs[seg.b];
+      composeCanvasFrame(activeKf.items, activeKf.caption);
     }
   };
 
-  let rec = null; const chunks = [];
-  if (record) {
-    rec = new MediaRecorder(cv.captureStream(30), { mimeType: mime, videoBitsPerSecond: 16e6 });
-    rec.ondataavailable = ev => { if (ev.data.size) chunks.push(ev.data); };
-    rec.onstop = () => download(new Blob(chunks, { type: mime }), 'map-video.' + (mime.includes('mp4') ? 'mp4' : 'webm'));
-    rec.start();
-  }
-  S.playing = true;
-  updateStats(record ? 'Grabando…' : 'Reproduciendo…');
-  const t0 = performance.now();
-  
-  const finish = () => {
-    S.playing = false;
-    const done = () => { redraw(record ? 'Video guardado en descargas.' : ''); };
-    if (rec) setTimeout(() => { if (rec.state !== 'inactive') rec.stop(); done(); }, 350); else done();
+  const stopPlayback = () => {
+    State.playing = false;
+    const finalize = () => renderScene(recordVideo ? '✅ Video exportado' : '');
+    if (recorder) {
+      setTimeout(() => { if (recorder.state !== 'inactive') recorder.stop(); finalize(); }, 350);
+    } else {
+      finalize();
+    }
   };
-  
-  const step = now => {
-    if (!S.playing) { finish(); return; }
-    const el = (now - t0) / 1000;
-    if (el >= T) { draw(segs[segs.length - 1], T); finish(); return; }
-    let seg = segs[0];
-    for (const s of segs) if (el >= s.s) seg = s;
-    draw(seg, el);
-    requestAnimationFrame(step);
+
+  const animLoop = now => {
+    if (!State.playing) { stopPlayback(); return; }
+    const elapsed = (now - startTime) / 1000;
+    if (elapsed >= totalDuration) {
+      renderSegment(segments[segments.length - 1], totalDuration);
+      stopPlayback();
+      return;
+    }
+    let currentSeg = segments[0];
+    for (const s of segments) if (elapsed >= s.start) currentSeg = s;
+    renderSegment(currentSeg, elapsed);
+    requestAnimationFrame(animLoop);
   };
-  requestAnimationFrame(step);
+  requestAnimationFrame(animLoop);
 }
 
-$('playBtn').onclick = () => play(false);$('recBtn').onclick = () => play(true);
-$('stopBtn').onclick = () => { S.playing = false; };$('exportPng').onclick = () => cv.toBlob(b => download(b, 'map-frame.png'));
-
-function serializeItems(items) {
+// ============================================================================
+// MÓDULO 14: GUARDAR Y CARGAR PROYECTOS (.JSON)
+// ============================================================================
+function serializeItemsForSave(items) {
   return items.map(it => {
     const copy = { ...it };
     delete copy.img;
@@ -1168,134 +1556,196 @@ function serializeItems(items) {
   });
 }
 
-async function deserializeItems(rawItems) {
-  if (!rawItems) return [];
-  const out = [];
-  for (const it of rawItems) {
+const loadImageAsync = src => new Promise((res, rej) => {
+  const img = new Image();
+  img.onload = () => res(img);
+  img.onerror = rej;
+  img.src = src;
+});
+
+async function deserializeItemsFromSave(rawList) {
+  if (!rawList) return [];
+  const result = [];
+  for (const it of rawList) {
     if (it.type === 'image' && it.src) {
-      const img = await loadImg(it.src);
-      out.push({ ...it, img });
+      const img = await loadImageAsync(it.src);
+      result.push({ ...it, img });
     } else {
-      out.push({ ...it });
+      result.push({ ...it });
     }
   }
-  return out;
+  return result;
 }
 
-$('savePrj').onclick = () => {
-  const data = {
-    v: 3, w: S.w, h: S.h, n: S.n, thr: +$('thr').value, nextId: S.nextId,
-    countries: S.countries, owners: Array.from(S.owners), groups: Array.from(S.groups), locked: Array.from(S.locked),
-    items: serializeItems(S.items), caption: S.caption,
-    keyframes: S.keyframes.map(k => ({
-      countries: k.countries, owners: Array.from(k.owners), groups: Array.from(k.groups), locked: Array.from(k.locked || []),
-      items: serializeItems(k.items || []), caption: k.caption, hold: k.hold, trans: k.trans
+$('savePrjBtn').addEventListener('click', () => {
+  const payload = {
+    v: 4,
+    w: State.w,
+    h: State.h,
+    n: State.n,
+    thr: +$('thr').value,
+    nextCountryId: State.nextCountryId,
+    nextGroupId: State.nextGroupId,
+    customBorders: Array.from(State.customBorders),
+    countries: State.countries,
+    owners: Array.from(State.owners),
+    groups: Array.from(State.groups),
+    locked: Array.from(State.locked),
+    items: serializeItemsForSave(State.items),
+    caption: State.caption,
+    keyframes: State.keyframes.map(k => ({
+      countries: k.countries,
+      owners: Array.from(k.owners),
+      groups: Array.from(k.groups || []),
+      locked: Array.from(k.locked || []),
+      items: serializeItemsForSave(k.items || []),
+      caption: k.caption,
+      hold: k.hold,
+      trans: k.trans
     }))
   };
-  download(new Blob([JSON.stringify(data)], { type: 'application/json' }), 'map-project.json');
-};
+  triggerBlobDownload(new Blob([JSON.stringify(payload)], { type: 'application/json' }), 'map-project.json');
+});
 
-const loadImg = src => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src; });
-
-$('loadPrj').addEventListener('change', async e => {
-  const f = e.target.files[0]; if (!f) return;
+$('loadPrjInput').addEventListener('change', async ev => {
+  const file = ev.target.files[0];
+  if (!file) return;
   try {
-    const d = JSON.parse(await f.text());
-    if (d.w !== S.w || d.n !== S.n) return updateStats('Carga primero el mapa correspondiente (Umbral ' + d.thr + ').');
-    S.nextId = Math.max(S.nextId, d.nextId || 1);
-    S.owners = Int32Array.from(d.owners); 
-    S.groups = d.groups ? Int32Array.from(d.groups) : new Int32Array(S.n + 1).map((_,i)=>i);
-    S.locked = d.locked ? Uint8Array.from(d.locked) : new Uint8Array(S.n + 1);
-    S.countries = d.countries; S.caption = d.caption || ''; $('caption').value = S.caption;
-    S.items = await deserializeItems(d.items);
-    S.keyframes = [];
-    for (const k of d.keyframes) {
-      S.keyframes.push({
+    const data = JSON.parse(await file.text());
+    if (data.w !== State.w || data.h !== State.h) {
+      updateStatus('Las dimensiones del proyecto no coinciden con la imagen de mapa actual.');
+      return;
+    }
+    if (data.thr) {
+      $('thr').value = data.thr;
+      $('thrVal').textContent = data.thr;
+    }
+    State.customBorders = data.customBorders ? Uint8Array.from(data.customBorders) : new Uint8Array(State.w * State.h);
+    runProvinceDetection();
+
+    State.nextCountryId = Math.max(State.nextCountryId, data.nextCountryId || 1);
+    State.nextGroupId = Math.max(State.nextGroupId, data.nextGroupId || 1);
+    State.countries = data.countries || [];
+    State.owners = Int32Array.from(data.owners || []);
+    State.groups = data.groups ? Int32Array.from(data.groups) : new Int32Array(State.n + 1);
+    State.locked = data.locked ? Uint8Array.from(data.locked) : new Uint8Array(State.n + 1);
+    State.caption = data.caption || '';
+    $('captionInput').value = State.caption;
+    State.items = await deserializeItemsFromSave(data.items);
+
+    State.keyframes = [];
+    for (const k of (data.keyframes || [])) {
+      State.keyframes.push({
         countries: k.countries,
         owners: Int32Array.from(k.owners),
-        groups: k.groups ? Int32Array.from(k.groups) : new Int32Array(S.n + 1).map((_,i)=>i),
-        locked: k.locked ? Uint8Array.from(k.locked) : new Uint8Array(S.n + 1),
-        items: await deserializeItems(k.items),
-        caption: k.caption, hold: k.hold, trans: k.trans
+        groups: k.groups ? Int32Array.from(k.groups) : new Int32Array(State.n + 1),
+        locked: k.locked ? Uint8Array.from(k.locked) : new Uint8Array(State.n + 1),
+        items: await deserializeItemsFromSave(k.items),
+        caption: k.caption,
+        hold: k.hold,
+        trans: k.trans
       });
     }
-    S.sel = -1; renderCountries(); renderKeyframes(); redraw('Proyecto cargado');
+    State.selectedKf = -1;
+    renderCountriesUI();
+    renderKeyframesUI();
+    renderScene('📂 Proyecto cargado correctamente');
   } catch (err) {
-    updateStats('Error al cargar proyecto: ' + err.message);
+    updateStatus('Error al cargar el proyecto: ' + err.message);
   }
-  e.target.value = '';
+  ev.target.value = '';
 });
 
-// ==========================================
-// 12. EVENTOS DE UI, GUERRA RÁPIDA Y ATAJOS
-// ==========================================
-$('mapFile').addEventListener('change', e => { const f = e.target.files[0]; if (!f) return; const img = new Image(); img.onload = () => { setMap(img); resetCountries(); renderCountries(); }; img.src = URL.createObjectURL(f); e.target.value = ''; });$('demoBtn').onclick = () => loadDefaultBalkanMap();
-$('thr').addEventListener('input', () => {$('thrVal').textContent = $('thr').value; });$('redetect').onclick = () => { 
-  if (!S.base) return;
-  if (confirm('Re-detectar provincias reiniciará las asignaciones actuales. ¿Continuar?')) { 
-    const keep = S.countries, act = S.active; 
-    setMap(S.base); S.countries = keep; S.active = act; 
-    renderCountries(); redraw(); 
-  } 
-};
-
-$('addCountry').onclick = () => { const c = addCountry(); renderCountries(); setActive(c.id); };
-
-// Aplicar Rojo vs Azul guardando antes el color original
-$('warApply').onclick = () => {
-  const a = S.countries.find(c => c.id === +$('warA').value);
-  const b = S.countries.find(c => c.id === +$('warB').value);
-  if (!a || !b || a === b) return updateStats('Elige dos países diferentes.');
-  pushUndo();
-  if (a.color !== '#d62728' && a.color !== '#1f77b4') a.origColor = a.color;
-  if (b.color !== '#d62728' && b.color !== '#1f77b4') b.origColor = b.color;
-  a.color = '#d62728'; 
-  b.color = '#1f77b4'; 
-  renderCountries(); 
-  redraw('⚔️ Colores de guerra aplicados');
-};
-
-$('warSwap').onclick = () => { 
-  const A = $('warA'), B =$('warB'), t = A.value; 
-  A.value = B.value; B.value = t; 
-};
-
-// Restaurar los colores originales de los dos países seleccionados en Guerra Rápida
-$('warRestore').onclick = () => {
-  const a = S.countries.find(c => c.id === +$('warA').value);
-  const b = S.countries.find(c => c.id === +$('warB').value);
-  if (!a && !b) return;
-  pushUndo();
-  if (a) a.color = getOriginalColor(a);
-  if (b) b.color = getOriginalColor(b);
-  renderCountries();
-  redraw('↺ Colores originales restaurados');
-};
-
-$('undoBtn').onclick = undo;
-$('redoBtn').onclick = redo;
-
-document.querySelectorAll('#tools button').forEach(b => b.addEventListener('click', () => setTool(b.dataset.tool)));
-function setTool(t) { 
-  S.tool = t; 
-  document.querySelectorAll('#tools button').forEach(b => b.classList.toggle('on', b.dataset.tool === t)); 
-  view.style.cursor = t === 'pan' ? 'grab' : (t === 'moveItem' ? 'move' : 'crosshair'); 
+// ============================================================================
+// MÓDULO 15: EVENTOS DE BOTONES, GUERRA RÁPIDA Y ATAJOS DE TECLADO
+// ============================================================================
+function selectTool(toolName) {
+  State.tool = toolName;
+  document.querySelectorAll('#tools button').forEach(btn => {
+    btn.classList.toggle('on', btn.dataset.tool === toolName);
+  });
+  view.style.cursor = toolName === 'pan' ? 'grab' : (toolName === 'moveItem' ? 'move' : 'crosshair');
 }
 
-window.addEventListener('keydown', e => {
-  if (/INPUT|TEXTAREA|SELECT/.test(e.target.tagName) && e.target.type !== 'range') return;
-  if (e.ctrlKey || e.metaKey) {
-    if (e.key.toLowerCase() === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
-    else if (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey)) { e.preventDefault(); redo(); }
-    return;
-  }
-  if (e.code === 'Space') { S.space = true; e.preventDefault(); return; }
-  const map = { f: 'fill', u: 'unown', g: 'group', h: 'ungroup', s: 'split', p: 'pick', t: 'text', i: 'image', v: 'moveItem' };
-  if (map[e.key.toLowerCase()]) setTool(map[e.key.toLowerCase()]);
+document.querySelectorAll('#tools button').forEach(btn => {
+  btn.addEventListener('click', () => selectTool(btn.dataset.tool));
 });
-window.addEventListener('keyup', e => { if (e.code === 'Space') S.space = false; });
 
-initCountryDatabase();
-loadDefaultBalkanMap();
+$('thr').addEventListener('input', () => {$('thrVal').textContent = $('thr').value; });$('opacity').addEventListener('input', () => {
+  $('opVal').textContent =$('opacity').value + '%';
+  recomposeOnly();
+});
 
-})();
+$('redetectBtn').addEventListener('click', () => {
+  if (!State.baseCanvas) return;
+  if (!confirm('Re-detectar provincias con el nuevo umbral reiniciará el mapa actual. ¿Continuar?')) return;
+  const savedCountries = State.countries.map(c => ({ ...c }));
+  const savedActive = State.activeCountryId;
+  State.customBorders = new Uint8Array(State.w * State.h);
+  runProvinceDetection();
+  State.owners = new Int32Array(State.n + 1);
+  State.groups = new Int32Array(State.n + 1);
+  State.locked = new Uint8Array(State.n + 1);
+  State.countries = savedCountries;
+  State.activeCountryId = savedActive;
+  renderCountriesUI();
+  renderScene('Provincias re-detectadas');
+});
+
+$('mapFile').addEventListener('change', ev => {
+  const f = ev.target.files[0];
+  if (!f) return;
+  const img = new Image();
+  img.onload = () => {
+    initMapFromImage(img);
+    setupDefaultCountries();
+    renderCountriesUI();
+    URL.revokeObjectURL(img.src);
+  };
+  img.src = URL.createObjectURL(f);
+  ev.target.value = '';
+});
+
+function loadDefaultBalkanImage() {
+  const img = new Image();
+  img.onload = () => {
+    initMapFromImage(img);
+    setupDefaultCountries();
+    renderCountriesUI();
+  };
+  img.onerror = () => {
+    // Mapa de respaldo si no se encuentra balkan image_2.jpg en la carpeta
+    const c = mkCanvas(1200, 700);
+    const cx = c.getContext('2d');
+    cx.fillStyle = '#dccbb1';
+    cx.fillRect(0, 0, 1200, 700);
+    cx.strokeStyle = '#1b1b1b';
+    cx.lineWidth = 3;
+    for (let x = 0; x <= 1200; x += 150) { cx.beginPath(); cx.moveTo(x, 0); cx.lineTo(x, 700); cx.stroke(); }
+    for (let y = 0; y <= 700; y += 140) { cx.beginPath(); cx.moveTo(0, y); cx.lineTo(1200, y); cx.stroke(); }
+    initMapFromImage(c);
+    setupDefaultCountries();
+    renderCountriesUI();
+    updateStatus(`Coloca "${DEFAULT_MAP_FILE}" en esta carpeta para cargarlo por defecto.`);
+  };
+  img.src = encodeURI(DEFAULT_MAP_FILE);
+}
+
+$('reloadDefaultBtn').addEventListener('click', loadDefaultBalkanImage);
+
+$('addCustomCountryBtn').addEventListener('click', () => {
+  const c = addCountryToState();
+  renderCountriesUI();
+  setActiveCountry(c.id);
+});
+
+// Guerra Rápida + Restauración de Colores Originales
+$('warApplyBtn').addEventListener('click', () => {
+  const a = State.countries.find(c => c.id === +$('warA').value);
+  const b = State.countries.find(c => c.id === +$('warB').value);
+  if (!a || !b || a === b) return updateStatus('Selecciona dos países distintos.');
+  pushUndoState();
+  if (a.color !== '#d62728' && a.color !== '#1f77b4') a.origColor = a.color;
+  if (b.color !== '#d62728' && b.color !== '#1f77b4') b.origColor = b.color;
+  a.color = '#d62728';
+  b.color 
