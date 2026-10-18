@@ -8,49 +8,58 @@
 </head>
 <body>
 <div id="app">
+  <!-- PANEL LATERAL IZQUIERDO -->
   <aside id="side">
-    <h1>Map Painter</h1>
+    <h1>Map Painter Pro</h1>
 
+    <!-- 1. Configuración del Mapa -->
     <section>
       <h2>Mapa</h2>
-      <label class="btn">Cargar otra imagen<input type="file" id="mapFile" accept="image/*" hidden></label>
-      <button id="demoBtn">Recargar mapa Balcanes</button>
-      <label>Umbral de líneas <span id="thrVal">135</span>
-        <input type="range" id="thr" min="20" max="230" value="135"></label>
-      <button id="redetect">Re-detectar provincias</button>
-      <label>Estilo del Mapa
-        <select id="mode">
-          <option value="relief">Con Relieve (Tinte suave)</option>
-          <option value="flat">Plano Simple (Sin relieve)</option>
-        </select></label>
-      <label>Opacidad del color <input type="range" id="opacity" min="10" max="100" value="100"></label>
+      <label class="btn">Cargar imagen de mapa<input type="file" id="mapFile" accept="image/*" hidden></label>
+      <button id="reloadDefaultBtn">Recargar mapa Balcanes</button>
+      <label>Umbral de líneas: <strong id="thrVal">135</strong>
+        <input type="range" id="thr" min="20" max="230" value="135">
+      </label>
+      <button id="redetectBtn">Re-detectar provincias</button>
+      <label>Opacidad del color: <strong id="opVal">100%</strong>
+        <input type="range" id="opacity" min="10" max="100" value="100">
+      </label>
     </section>
 
+    <!-- 2. Herramientas de Edición -->
     <section>
       <h2>Herramientas</h2>
       <div id="tools">
-        <button data-tool="fill" class="on" title="F">Asignar prov.</button>
-        <button data-tool="unown" title="U">Desasignar</button>
-        <button data-tool="group" title="G">Agrupar (Clic/Lazo)</button>
-        <button data-tool="ungroup" title="H">Desagrupar</button>
-        <button data-tool="split" title="S">Dibujar Frontera</button>
-        <button data-tool="pick" title="P">Clonar color</button>
-        <button data-tool="text" title="T">Añadir Texto</button>
-        <button data-tool="image" title="I">Añadir Imagen</button>
-        <button data-tool="moveItem" title="V">Mover Elem.</button>
-        <button data-tool="pan" title="Espacio o Rueda = Mover">Mover Mapa</button>
+        <button data-tool="fill" class="on" title="Atajo: F">Asignar prov.</button>
+        <button data-tool="unown" title="Atajo: U">Desasignar</button>
+        <button data-tool="group" title="Atajo: G (Clic o arrastrar lazo)">Agrupar (Clic/Lazo)</button>
+        <button data-tool="ungroup" title="Atajo: H">Desagrupar</button>
+        <button data-tool="split" title="Atajo: S (Arrastrar de borde a borde)">Dibujar Frontera</button>
+        <button data-tool="pick" title="Atajo: P">Clonar color</button>
+        <button data-tool="text" title="Atajo: T">Añadir Texto</button>
+        <button data-tool="image" title="Atajo: I">Añadir Imagen</button>
+        <button data-tool="moveItem" title="Atajo: V">Mover Elem.</button>
+        <button data-tool="pan" title="Espacio o Rueda del ratón">Mover Mapa</button>
       </div>
-      
-      <div id="itemControls" style="margin-top:8px; padding-top:6px; border-top:1px dashed #2c3038;">
-        <label>Texto / Etiqueta: <input type="text" id="mapTextInput" placeholder="Ej. Belgrado"></label>
+
+      <!-- Propiedades para Textos e Imágenes -->
+      <div class="sub-panel">
+        <label>Texto para etiqueta:
+          <input type="text" id="mapTextInput" placeholder="Ej. Belgrado, OTAN...">
+        </label>
         <div class="row">
-          <label style="flex:1">Tam. / Escala <input type="number" id="itemSize" value="22" min="6" max="400"></label>
-          <label>Color <input type="color" id="itemColor" value="#ffffff"></label>
+          <label style="flex:1">Tamaño/Escala
+            <input type="number" id="itemSize" value="22" min="8" max="400">
+          </label>
+          <label>Color
+            <input type="color" id="itemColor" value="#ffffff">
+          </label>
         </div>
         <input type="file" id="itemImgFile" accept="image/*" hidden>
       </div>
     </section>
 
+    <!-- 3. Base de Datos de Países -->
     <section>
       <h2>Base de Datos de Países</h2>
       <label>Continente:
@@ -59,66 +68,81 @@
       <label>País:
         <select id="countrySelect"></select>
       </label>
-      <button id="addDbCountryBtn" class="btn-primary">+ Añadir al mapa</button>
+      <button id="addDbCountryBtn" class="btn-primary">+ Añadir país al mapa</button>
     </section>
 
+    <!-- 4. Lista de Países en el Proyecto -->
     <section>
       <h2>Países Activos</h2>
       <div id="countries"></div>
-      <button id="addCountry">+ Añadir país personalizado</button>
+      <button id="addCustomCountryBtn">+ Añadir país personalizado</button>
     </section>
 
+    <!-- 5. Guerra Rápida -->
     <section>
       <h2>Guerra Rápida</h2>
       <label>Atacante <select id="warA"></select></label>
       <label>Defensor <select id="warB"></select></label>
       <div class="row">
-        <button id="warApply">Rojo vs Azul</button>
-        <button id="warSwap">Invertir</button>
+        <button id="warApplyBtn">Rojo vs Azul</button>
+        <button id="warSwapBtn">Invertir</button>
       </div>
-      <button id="warRestore">↺ Restaurar colores originales</button>
+      <button id="warRestoreBtn">↺ Restaurar colores originales</button>
     </section>
 
+    <!-- 6. Historial y Archivo -->
     <section>
       <h2>Proyecto</h2>
       <div class="row">
-        <button id="undoBtn">Deshacer</button>
-        <button id="redoBtn">Rehacer</button>
+        <button id="undoBtn" title="Ctrl+Z">Deshacer</button>
+        <button id="redoBtn" title="Ctrl+Y">Rehacer</button>
       </div>
-      <button id="exportPng">Exportar fotograma (PNG)</button>
-      <button id="savePrj">Guardar proyecto (.json)</button>
-      <label class="btn">Cargar proyecto<input type="file" id="loadPrj" accept=".json" hidden></label>
+      <button id="exportPngBtn">Exportar fotograma (PNG)</button>
+      <button id="savePrjBtn">Guardar proyecto (.json)</button>
+      <label class="btn">Cargar proyecto<input type="file" id="loadPrjInput" accept=".json" hidden></label>
     </section>
   </aside>
 
+  <!-- ÁREA CENTRAL Y LÍNEA DE TIEMPO -->
   <main>
     <div id="view">
-      <div id="stage"><canvas id="main"></canvas></div>
-      <div id="ctxMenu" class="ctx-menu" hidden></div>
+      <div id="stage">
+        <canvas id="mainCanvas"></canvas>
+      </div>
     </div>
+
     <div id="timeline">
       <div id="kfList"></div>
       <div class="tlrow">
-        <button id="kfAdd">+ Fotograma (Keyframe)</button>
-        <button id="kfUpdate">Actualizar seleccionado</button>
-        <button id="kfLeft">◀</button>
-        <button id="kfRight">▶</button>
-        <button id="kfDel">Eliminar</button>
-        <label>Pausa (s) <input type="number" id="hold" value="2" min="0" step="0.5"></label>
-        <label>Transición (s) <input type="number" id="trans" value="1.5" min="0" step="0.5"></label>
+        <button id="kfAddBtn">+ Fotograma</button>
+        <button id="kfUpdateBtn">Actualizar seleccionado</button>
+        <button id="kfLeftBtn">◀</button>
+        <button id="kfRightBtn">▶</button>
+        <button id="kfDelBtn">Eliminar</button>
+        <label>Pausa (s) <input type="number" id="holdInput" value="2" min="0" step="0.5"></label>
+        <label>Transición (s) <input type="number" id="transInput" value="1.5" min="0" step="0.5"></label>
       </div>
       <div class="tlrow">
-        <label>Fecha/Título <input type="text" id="caption" placeholder="ej. Noviembre 2027"></label>
-        <label>Tamaño <input type="number" id="capSize" value="56" min="10" max="300"></label>
-        <label>Posición <select id="capPos"><option value="bottom">Abajo</option><option value="top">Arriba</option></select></label>
+        <label>Título/Fecha <input type="text" id="captionInput" placeholder="Ej. Noviembre 2027"></label>
+        <label>Tamaño <input type="number" id="capSizeInput" value="56" min="10" max="300"></label>
+        <label>Posición 
+          <select id="capPosSelect">
+            <option value="bottom">Abajo</option>
+            <option value="top">Arriba</option>
+          </select>
+        </label>
         <button id="playBtn">▶ Previsualizar</button>
         <button id="recBtn">● Grabar video</button>
         <button id="stopBtn">■ Detener</button>
-        <span id="status"></span>
+        <span id="status">Cargando...</span>
       </div>
     </div>
   </main>
 </div>
+
+<!-- MENÚ CONTEXTUAL (Aislado fuera de #app para evitar traspaso de eventos) -->
+<div id="ctxMenu" class="ctx-menu" hidden></div>
+
 <script src="app.js"></script>
 </body>
 </html>
