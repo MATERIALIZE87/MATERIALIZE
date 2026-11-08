@@ -3,146 +3,307 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Map Painter Pro</title>
-  <link rel="stylesheet" href="style.css">
+  <title>Materialize Map Studio</title>
+  <link rel="stylesheet" href="css/style.css">
+  <!-- Librerías incluidas en el repositorio (sin CDN) -->
+  <script src="js/vendor/d3-array.min.js"></script>
+  <script src="js/vendor/d3-geo.min.js"></script>
+  <script src="js/vendor/topojson-client.min.js"></script>
+  <script src="js/vendor/topojson-server.min.js"></script>
+  <script src="js/vendor/topojson-simplify.min.js"></script>
 </head>
 <body>
-<div id="app">
-  <!-- PANEL LATERAL IZQUIERDO -->
-  <aside id="side">
-    <h1>Map Painter Pro</h1>
 
-    <!-- 1. Configuración del Mapa -->
-    <section>
-      <h2>Mapa</h2>
-      <label class="btn">Cargar imagen de mapa<input type="file" id="mapFile" accept="image/*" hidden></label>
-      <button id="reloadDefaultBtn">Recargar mapa Balcanes</button>
-      <label>Umbral de líneas: <strong id="thrVal">135</strong>
-        <input type="range" id="thr" min="20" max="230" value="135">
-      </label>
-      <button id="redetectBtn">Re-detectar provincias</button>
-      <label>Opacidad del color: <strong id="opVal">100%</strong>
-        <input type="range" id="opacity" min="10" max="100" value="100">
-      </label>
-    </section>
+<header id="top">
+  <strong class="brand">🗺️ Materialize Map Studio</strong>
+  <div class="menu">
+    <button id="btnNew" title="Empezar un proyecto vacío">Nuevo</button>
+    <button id="btnImport" class="primary" title="GeoJSON / TopoJSON exportado desde QGIS">Importar provincias…</button>
+    <button id="btnSample" title="Provincias de Europa (Natural Earth 10m)">Mapa de ejemplo</button>
+    <span class="sep"></span>
+    <button id="btnOpen">Abrir proyecto…</button>
+    <button id="btnSave">Guardar proyecto</button>
+    <span class="sep"></span>
+    <button id="btnUndo" title="Ctrl+Z">↶</button>
+    <button id="btnRedo" title="Ctrl+Y">↷</button>
+    <span class="sep"></span>
+    <button id="btnPng">Exportar PNG</button>
+    <button id="btnVideo" class="rec">● Exportar vídeo</button>
+    <button id="btnHelp">?</button>
+  </div>
+  <span id="status"></span>
+</header>
 
-    <!-- 2. Herramientas de Edición -->
-    <section>
-      <h2>Herramientas</h2>
-      <div id="tools">
-        <button data-tool="fill" class="on" title="Atajo: F">Asignar prov.</button>
-        <button data-tool="unown" title="Atajo: U">Desasignar</button>
-        <button data-tool="group" title="Atajo: G (Clic o arrastrar lazo)">Agrupar (Clic/Lazo)</button>
-        <button data-tool="ungroup" title="Atajo: H">Desagrupar</button>
-        <button data-tool="split" title="Atajo: S (Arrastrar de borde a borde)">Dibujar Frontera</button>
-        <button data-tool="pick" title="Atajo: P">Clonar color</button>
-        <button data-tool="text" title="Atajo: T">Añadir Texto</button>
-        <button data-tool="image" title="Atajo: I">Añadir Imagen</button>
-        <button data-tool="moveItem" title="Atajo: V">Mover Elem.</button>
-        <button data-tool="pan" title="Espacio o Rueda del ratón">Mover Mapa</button>
+<div id="main">
+  <!-- ======================= PANEL IZQUIERDO ======================= -->
+  <aside id="left">
+    <h2>Herramientas</h2>
+    <div id="tools">
+      <button data-tool="paint" title="Pintar (B)">🖌️ Pintar</button>
+      <button data-tool="select" title="Seleccionar / mover (V)">🖱️ Seleccionar</button>
+      <button data-tool="erase" title="Quitar dueño (E)">🧽 Quitar</button>
+      <button data-tool="pick" title="Cuentagotas: elegir país de una provincia (I)">💧 Cuentagotas</button>
+      <button data-tool="text" title="Añadir texto (T)">🔤 Texto</button>
+      <button data-tool="image" title="Añadir imagen">🖼️ Imagen</button>
+      <button data-tool="pan" title="Mover vista (H, Espacio o botón derecho)">✋ Mover vista</button>
+      <button data-tool="bg" title="Mover el mapa de fondo">🧭 Mover fondo</button>
+    </div>
+    <label class="chk"><input type="checkbox" id="optIgnoreGroups"> Ignorar grupos (o mantén Alt)</label>
+
+    <div id="activeCountry" class="card">
+      <div class="small">País activo (para pintar)</div>
+      <div class="ac-row"><span id="acSwatch" class="sw big"></span><span id="acName">—</span></div>
+    </div>
+
+    <!-- Panel de selección de provincias -->
+    <div id="selPanel" class="card" hidden>
+      <h3>Selección: <span id="selCount">0</span> provincias</h3>
+      <div id="selNames" class="small muted"></div>
+      <button id="selAssign">Asignar al país activo</button>
+      <button id="selUnown">Quitar dueño</button>
+      <div class="row">
+        <input type="color" id="selColor" value="#c0392b">
+        <button id="selColorApply">Color propio</button>
+        <button id="selColorClear" title="Volver al color del país">✕</button>
       </div>
+      <label>Transparencia <span id="selAlphaVal">100%</span>
+        <input type="range" id="selAlpha" min="0" max="100" value="100"></label>
+      <div class="row">
+        <button id="selGroup" title="Ctrl+G">Agrupar</button>
+        <button id="selUngroup" title="Ctrl+Shift+G">Desagrupar</button>
+      </div>
+      <button id="selCountry">Seleccionar país completo</button>
+      <button id="selPropagate" title="Copia dueño/color/transparencia de estas provincias a todos los fotogramas posteriores">Aplicar a fotogramas siguientes</button>
+      <button id="selClear">Deseleccionar (Esc)</button>
+    </div>
 
-      <!-- Propiedades para Textos e Imágenes -->
-      <div class="sub-panel">
-        <label>Texto para etiqueta:
-          <input type="text" id="mapTextInput" placeholder="Ej. Belgrado, OTAN...">
-        </label>
+    <!-- Panel de propiedades de texto/imagen -->
+    <div id="itemPanel" class="card" hidden>
+      <h3 id="itemTitle">Elemento</h3>
+      <div id="textProps">
+        <label>Texto <textarea id="ipText" rows="2"></textarea></label>
         <div class="row">
-          <label style="flex:1">Tamaño/Escala
-            <input type="number" id="itemSize" value="22" min="8" max="400">
-          </label>
-          <label>Color
-            <input type="color" id="itemColor" value="#ffffff">
-          </label>
+          <label>Fuente <select id="ipFont">
+            <option value="Georgia, serif">Georgia</option>
+            <option value="'Times New Roman', serif">Times</option>
+            <option value="Arial, sans-serif">Arial</option>
+            <option value="Impact, sans-serif">Impact</option>
+            <option value="'Trebuchet MS', sans-serif">Trebuchet</option>
+            <option value="Verdana, sans-serif">Verdana</option>
+            <option value="'Courier New', monospace">Courier</option>
+            <option value="system-ui, sans-serif">Sistema</option>
+          </select></label>
         </div>
-        <input type="file" id="itemImgFile" accept="image/*" hidden>
+        <div class="row">
+          <label>Tamaño <input type="number" id="ipSize" min="2" max="600" step="1"></label>
+          <label>Color <input type="color" id="ipColor"></label>
+        </div>
+        <div class="row">
+          <label>Contorno <input type="color" id="ipStroke"></label>
+          <label>Grosor <input type="number" id="ipStrokeW" min="0" max="40" step="0.5"></label>
+        </div>
+        <div class="row">
+          <label class="chk"><input type="checkbox" id="ipBold"> Negrita</label>
+          <label class="chk"><input type="checkbox" id="ipItalic"> Cursiva</label>
+        </div>
+        <label>Espaciado <input type="range" id="ipSpacing" min="-5" max="40" step="0.5"></label>
       </div>
-    </section>
-
-    <!-- 3. Base de Datos de Países -->
-    <section>
-      <h2>Base de Datos de Países</h2>
-      <label>Continente:
-        <select id="continentSelect"></select>
-      </label>
-      <label>País:
-        <select id="countrySelect"></select>
-      </label>
-      <button id="addDbCountryBtn" class="btn-primary">+ Añadir país al mapa</button>
-    </section>
-
-    <!-- 4. Lista de Países en el Proyecto -->
-    <section>
-      <h2>Países Activos</h2>
-      <div id="countries"></div>
-      <button id="addCustomCountryBtn">+ Añadir país personalizado</button>
-    </section>
-
-    <!-- 5. Guerra Rápida -->
-    <section>
-      <h2>Guerra Rápida</h2>
-      <label>Atacante <select id="warA"></select></label>
-      <label>Defensor <select id="warB"></select></label>
+      <div id="imgProps">
+        <div class="row">
+          <label>Ancho <input type="number" id="ipW" min="1" step="1"></label>
+          <label>Alto <input type="number" id="ipH" min="1" step="1"></label>
+        </div>
+        <label class="chk"><input type="checkbox" id="ipKeep" checked> Mantener proporción</label>
+      </div>
+      <label>Rotación <span id="ipRotVal"></span><input type="range" id="ipRot" min="-180" max="180" step="1"></label>
+      <label>Opacidad <span id="ipOpVal"></span><input type="range" id="ipOpacity" min="0" max="100" step="1"></label>
+      <label class="chk" title="Fijo en la pantalla (títulos, fechas): no se mueve con la cámara"><input type="checkbox" id="ipScreen"> Fijo en pantalla (título/fecha)</label>
       <div class="row">
-        <button id="warApplyBtn">Rojo vs Azul</button>
-        <button id="warSwapBtn">Invertir</button>
+        <button id="ipFront" title="Traer al frente">⬆ Frente</button>
+        <button id="ipBack" title="Enviar atrás">⬇ Atrás</button>
       </div>
-      <button id="warRestoreBtn">↺ Restaurar colores originales</button>
-    </section>
-
-    <!-- 6. Historial y Archivo -->
-    <section>
-      <h2>Proyecto</h2>
       <div class="row">
-        <button id="undoBtn" title="Ctrl+Z">Deshacer</button>
-        <button id="redoBtn" title="Ctrl+Y">Rehacer</button>
+        <button id="ipDup">Duplicar</button>
+        <button id="ipDel" class="danger">Eliminar</button>
       </div>
-      <button id="exportPngBtn">Exportar fotograma (PNG)</button>
-      <button id="savePrjBtn">Guardar proyecto (.json)</button>
-      <label class="btn">Cargar proyecto<input type="file" id="loadPrjInput" accept=".json" hidden></label>
-    </section>
+      <button id="ipPropagate" title="Copia este elemento (con su estado actual) a todos los fotogramas siguientes">Aplicar a fotogramas siguientes</button>
+      <button id="ipRemoveNext" title="Lo quita de los fotogramas siguientes (desaparece con un fundido)">Quitar de fotogramas siguientes</button>
+    </div>
+
+    <div id="toolHelp" class="card small muted"></div>
   </aside>
 
-  <!-- ÁREA CENTRAL Y LÍNEA DE TIEMPO -->
-  <main>
-    <div id="view">
-      <div id="stage">
-        <canvas id="mainCanvas"></canvas>
+  <!-- ======================= LIENZO ======================= -->
+  <div id="viewWrap">
+    <canvas id="cv"></canvas>
+    <div id="hover"></div>
+    <div id="empty">
+      <h2>Empieza importando tus provincias</h2>
+      <p>En QGIS: clic derecho en <b>ne_10m_admin_1_states_provinces</b> → <b>Exportar → Guardar objetos como…</b> → Formato <b>GeoJSON</b>.<br>
+        Luego pulsa <b>Importar provincias…</b> (o prueba el <b>Mapa de ejemplo</b>).</p>
+      <div class="row center">
+        <button id="emptyImport" class="primary">Importar provincias…</button>
+        <button id="emptySample">Mapa de ejemplo (Europa)</button>
       </div>
+    </div>
+  </div>
+
+  <!-- ======================= PANEL DERECHO ======================= -->
+  <aside id="right">
+    <div class="tabs">
+      <button data-tab="countries" class="on">Países</button>
+      <button data-tab="layers">Capas y estilo</button>
     </div>
 
-    <div id="timeline">
-      <div id="kfList"></div>
-      <div class="tlrow">
-        <button id="kfAddBtn">+ Fotograma</button>
-        <button id="kfUpdateBtn">Actualizar seleccionado</button>
-        <button id="kfLeftBtn">◀</button>
-        <button id="kfRightBtn">▶</button>
-        <button id="kfDelBtn">Eliminar</button>
-        <label>Pausa (s) <input type="number" id="holdInput" value="2" min="0" step="0.5"></label>
-        <label>Transición (s) <input type="number" id="transInput" value="1.5" min="0" step="0.5"></label>
+    <div id="tab-countries" class="tab">
+      <input type="search" id="cSearch" placeholder="Buscar país…">
+      <div class="row">
+        <label class="chk"><input type="checkbox" id="cOnlyMap" checked> Solo los del mapa</label>
       </div>
-      <div class="tlrow">
-        <label>Título/Fecha <input type="text" id="captionInput" placeholder="Ej. Noviembre 2027"></label>
-        <label>Tamaño <input type="number" id="capSizeInput" value="56" min="10" max="300"></label>
-        <label>Posición 
-          <select id="capPosSelect">
-            <option value="bottom">Abajo</option>
-            <option value="top">Arriba</option>
-          </select>
-        </label>
-        <button id="playBtn">▶ Previsualizar</button>
-        <button id="recBtn">● Grabar video</button>
-        <button id="stopBtn">■ Detener</button>
-        <span id="status">Cargando...</span>
+      <div id="cList"></div>
+      <div class="card">
+        <div class="small">País personalizado / ficticio</div>
+        <div class="row">
+          <input type="text" id="cNewName" placeholder="Nombre">
+          <input type="color" id="cNewColor" value="#7a4fb0">
+          <button id="cNewAdd">+</button>
+        </div>
       </div>
+      <button id="cResetColors" class="small">Restaurar colores predefinidos</button>
     </div>
-  </main>
+
+    <div id="tab-layers" class="tab" hidden>
+      <h3>Provincias</h3>
+      <label>Opacidad del relleno <span id="stFillOpVal"></span><input type="range" id="stFillOp" min="0" max="100"></label>
+      <div class="row"><label>Sin dueño <input type="color" id="stUnowned"></label>
+        <label>Opacidad <input type="number" id="stUnownedOp" min="0" max="100" step="5"></label></div>
+      <div class="row"><label>Bordes provincia <input type="color" id="stProvBorder"></label>
+        <label>Grosor <input type="number" id="stProvBorderW" min="0" max="10" step="0.1"></label></div>
+      <label>Opacidad bordes provincia <input type="range" id="stProvBorderOp" min="0" max="100"></label>
+      <div class="row"><label>Fronteras país <input type="color" id="stCountryBorder"></label>
+        <label>Grosor <input type="number" id="stCountryBorderW" min="0" max="20" step="0.1"></label></div>
+      <div class="row"><label>Costa <input type="color" id="stCoast"></label>
+        <label>Grosor <input type="number" id="stCoastW" min="0" max="20" step="0.1"></label></div>
+      <div class="row"><label>Mar / fondo <input type="color" id="stSea"></label></div>
+      <label class="chk"><input type="checkbox" id="stScaleLines"> Grosor de líneas escala con el zoom</label>
+
+      <h3>Mapa de fondo (imagen de QGIS)</h3>
+      <button id="bgLoad">Cargar imagen de fondo…</button>
+      <button id="bgWorld" title="Archivo .pgw/.jgw/.wld exportado por QGIS junto a la imagen">Alinear con world file (.pgw/.jgw)…</button>
+      <button id="bgFit">Ajustar a la extensión de las provincias</button>
+      <label class="chk"><input type="checkbox" id="bgVisible" checked> Visible</label>
+      <label>Opacidad fondo <input type="range" id="bgOpacity" min="0" max="100"></label>
+      <div class="grid4">
+        <label>X0 <input type="number" id="bgX0" step="1"></label>
+        <label>Y0 <input type="number" id="bgY0" step="1"></label>
+        <label>X1 <input type="number" id="bgX1" step="1"></label>
+        <label>Y1 <input type="number" id="bgY1" step="1"></label>
+      </div>
+      <button id="bgRemove" class="danger">Quitar fondo</button>
+
+      <h3>Capas extra (ríos, carreteras, ciudades…)</h3>
+      <button id="layerAdd">Añadir capa GeoJSON…</button>
+      <div id="layerList"></div>
+
+      <h3>Vídeo</h3>
+      <div class="row"><label>Ancho <input type="number" id="outW" min="320" max="7680" step="2"></label>
+        <label>Alto <input type="number" id="outH" min="240" max="4320" step="2"></label></div>
+      <div class="row"><label>FPS <input type="number" id="outFps" min="10" max="60"></label></div>
+    </div>
+  </aside>
 </div>
 
-<!-- MENÚ CONTEXTUAL (Aislado fuera de #app para evitar traspaso de eventos) -->
-<div id="ctxMenu" class="ctx-menu" hidden></div>
+<!-- ======================= LÍNEA DE TIEMPO ======================= -->
+<footer id="timeline">
+  <div class="tlrow">
+    <button id="tlPlay" title="Reproducir desde el principio">▶ Desde el inicio</button>
+    <button id="tlPlayHere" title="Reproducir desde el fotograma seleccionado">▶ Desde aquí</button>
+    <button id="tlStop">■</button>
+    <span id="tlTime" class="mono">0.0 s</span>
+    <span class="sep"></span>
+    <button id="tlAdd" class="primary" title="Duplica el fotograma actual (N)">+ Fotograma</button>
+    <button id="tlDup" title="Insertar copia justo después">Insertar copia</button>
+    <button id="tlLeft" title="Mover a la izquierda">◀</button>
+    <button id="tlRight" title="Mover a la derecha">▶</button>
+    <button id="tlDel" class="danger">Eliminar</button>
+    <span class="sep"></span>
+    <button id="camSave" title="La vista actual será la cámara de este fotograma">📷 Guardar cámara</button>
+    <button id="camGo" title="Ir a la cámara de este fotograma">🎯 Ver cámara</button>
+    <button id="camClear" title="Usar la cámara del fotograma anterior">Quitar cámara</button>
+  </div>
+  <div class="tlrow settings">
+    <label title="Duración total del fotograma (segundos)">Duración <input type="number" id="fDur" min="0.1" step="0.1"> s</label>
+    <label title="Tiempo que tarda el cambio de color, cámara y textos">Transición <input type="number" id="fTrans" min="0" step="0.1"> s</label>
+    <label title="Las provincias conquistadas aparecen en tono claro y pasan al color normal en este tiempo">Aclarado <input type="number" id="fFade" min="0" step="0.1"> s</label>
+    <label title="Cuánto más claro es el color del atacante al conquistar (0 = nada, 100 = blanco)">Tono claro <input type="number" id="fLight" min="0" max="100" step="5"> %</label>
+    <label title="Las provincias cambian una a una en el orden en que las pintaste, repartidas en estos segundos">Propagación <input type="number" id="fSpread" min="0" step="0.1"> s</label>
+    <label title="Duración del movimiento de cámara hacia este fotograma">Cámara <input type="number" id="fCamT" min="0" step="0.1"> s</label>
+    <button id="fApplyAll" title="Copia estos tiempos a todos los fotogramas">Aplicar a todos</button>
+    <button id="fClearOrder" title="Olvida el orden de pintura de este fotograma">Borrar orden</button>
+  </div>
+  <div id="frames"></div>
+</footer>
 
-<script src="app.js"></script>
+<!-- ======================= DIÁLOGOS ======================= -->
+<dialog id="importDlg">
+  <form method="dialog">
+    <h2>Importar provincias</h2>
+    <p class="small muted" id="impInfo"></p>
+    <label>Campo de país (dueño inicial) <select id="impOwner"></select></label>
+    <label>Campo de nombre <select id="impName"></select></label>
+    <label>Proyección <select id="impProj"></select></label>
+    <label>Simplificación <span id="impSimpVal"></span> <input type="range" id="impSimp" min="0" max="85" value="0"></label>
+    <p class="small muted">Simplificar acelera el editor con mapas grandes (el mundo entero). Las fronteras compartidas se mantienen encajadas.</p>
+    <label class="chk"><input type="checkbox" id="impKeep"> Conservar fotogramas, textos e imágenes del proyecto actual</label>
+    <div class="row end">
+      <button value="cancel">Cancelar</button>
+      <button id="impGo" value="ok" class="primary">Importar</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="videoDlg">
+  <form method="dialog">
+    <h2>Exportar vídeo</h2>
+    <div class="row">
+      <label>Desde fotograma <input type="number" id="vFrom" min="1"></label>
+      <label>Hasta <input type="number" id="vTo" min="1"></label>
+    </div>
+    <label>Formato <select id="vFormat"></select></label>
+    <label>Calidad (Mbps) <input type="number" id="vBitrate" min="1" max="80" value="16"></label>
+    <p class="small muted">El vídeo se graba en tiempo real: deja la pestaña visible hasta que termine. Resolución y FPS: pestaña «Capas y estilo».</p>
+    <div class="row end">
+      <button value="cancel">Cancelar</button>
+      <button value="ok" class="primary">Grabar</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="helpDlg">
+  <form method="dialog">
+    <h2>Cómo usarlo</h2>
+    <ol class="help">
+      <li><b>Importar:</b> exporta desde QGIS la capa de provincias como GeoJSON y pulsa «Importar provincias». Cada provincia se detecta como un polígono real.</li>
+      <li><b>Pintar:</b> elige un país en la lista de la derecha y pinta arrastrando sobre las provincias (B). Las conquistas se ven en tono claro y luego pasan al color normal.</li>
+      <li><b>Seleccionar (V):</b> clic en provincias (Mayús para añadir, arrastrar para seleccionar en rectángulo, doble clic para todo el país). Luego agrupa (Ctrl+G), desagrupa, cambia color o transparencia.</li>
+      <li><b>Grupos:</b> al pintar o seleccionar una provincia de un grupo se edita el grupo entero (mantén Alt para ignorarlo).</li>
+      <li><b>Textos e imágenes:</b> herramienta Texto (T) o Imagen; muévelos con Seleccionar, cambia tamaño desde la esquina o con la rueda + Ctrl.</li>
+      <li><b>Fotogramas:</b> «+ Fotograma» copia el estado actual. Pinta los cambios en el nuevo. Ajusta Duración, Transición, Aclarado y Propagación. 📷 guarda la cámara (zoom) de cada fotograma.</li>
+      <li><b>Vídeo:</b> «Exportar vídeo» graba un .mp4/.webm listo para YouTube.</li>
+      <li><b>Atajos:</b> Ctrl+Z / Ctrl+Y, Supr para borrar, Espacio + arrastrar para mover, rueda para zoom, N nuevo fotograma, ←/→ cambiar de fotograma.</li>
+    </ol>
+    <p class="small muted">Todo se guarda automáticamente en este navegador. Usa «Guardar proyecto» para tener una copia (.json).</p>
+    <div class="row end"><button value="ok" class="primary">Entendido</button></div>
+  </form>
+</dialog>
+
+<input type="file" id="fileGeo" accept=".geojson,.json,.topojson" hidden>
+<input type="file" id="fileProject" accept=".json,.mapproj" hidden>
+<input type="file" id="fileImage" accept="image/*" hidden>
+<input type="file" id="fileBg" accept="image/*" hidden>
+<input type="file" id="fileWorld" accept=".pgw,.jgw,.wld,.tfw,.pngw,.jpgw,.txt" hidden>
+<input type="file" id="fileLayer" accept=".geojson,.json,.topojson" hidden>
+
+<script type="module" src="js/app.js"></script>
 </body>
 </html>
